@@ -28,6 +28,8 @@ export const TIER_RESTRICTIONS: Record<SubscriptionPlan, string[]> = {
     'retrieve_', // Amazon uses retrieve_ for read operations
     'describe_',
     'report_',
+    'create_report',        // Creating reports is a READ operation (just requesting data)
+    'create_product_report', // Same - generating reports to view metrics
     'billing_',
     'account_info_',
   ],
