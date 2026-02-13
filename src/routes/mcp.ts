@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { getValidAccessToken } from '../services/token-manager.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
   // MCP proxy route with authentication
@@ -9,22 +10,40 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     preHandler: authMiddleware, // Add auth middleware
   }, async (request, reply) => {
     const mcpRequest = request.body as any;
+    const user = request.user!; // Set by auth middleware
 
-    logger.info({ method: mcpRequest?.method }, 'MCP request received');
+    logger.info({
+      method: mcpRequest?.method,
+      userId: user.user_id
+    }, 'MCP request received');
 
     try {
-      // For Phase 1, we'll just forward to the mock server (NA region)
-      const endpoint = config.amazonMcp.endpoints.na;
+      // Get valid Amazon access token (auto-refreshes if expired)
+      const { accessToken, account } = await getValidAccessToken(
+        user.user_id,
+        mcpRequest.params?.profileId // Optional: allow user to specify account
+      );
 
-      logger.debug({ endpoint }, 'Forwarding to Amazon MCP endpoint');
+      // Determine Amazon MCP endpoint by region
+      const endpoint = config.amazonMcp.endpoints[account.region];
+
+      logger.debug({
+        endpoint,
+        profileId: account.amazon_profile_id,
+        marketplace: account.marketplace
+      }, 'Forwarding to Amazon MCP endpoint');
 
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Phase 1: Add dummy auth header for testing with mock server
-          // In Phase 2, we'll validate real API keys and use Amazon tokens
-          'Authorization': 'Bearer test_token_phase1',
+          // Phase 3: Use real Amazon tokens and headers
+          'Authorization': `Bearer ${accessToken}`,
+          'Amazon-Advertising-API-ClientId': config.lwa.clientId,
+          'Amazon-Advertising-API-Scope': account.amazon_profile_id,
+          ...(account.amazon_advertiser_account_id && {
+            'Amazon-Ads-AccountID': account.amazon_advertiser_account_id,
+          }),
         },
         body: JSON.stringify(mcpRequest),
       });
@@ -43,6 +62,29 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
       return result;
     } catch (error: any) {
       logger.error({ error: error.message }, 'MCP proxy error');
+
+      // Handle specific token errors
+      if (error.message === 'NO_CONNECTED_ACCOUNTS') {
+        return reply.code(404).send({
+          error: {
+            code: 'NO_ACCOUNTS',
+            message: 'No Amazon accounts connected',
+            action: 'connect',
+            url: 'https://app.geenie.io/dashboard/accounts',
+          },
+        });
+      }
+
+      if (error.message === 'TOKEN_REFRESH_FAILED') {
+        return reply.code(502).send({
+          error: {
+            code: 'TOKEN_REFRESH_FAILED',
+            message: 'Failed to refresh Amazon token. Please reconnect your account.',
+            action: 'reconnect',
+            url: 'https://app.geenie.io/dashboard/accounts',
+          },
+        });
+      }
 
       return reply.code(500).send({
         error: {
