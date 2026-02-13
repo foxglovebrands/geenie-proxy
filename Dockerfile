@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install ALL dependencies (including dev deps for build)
+RUN npm ci
 
 # Copy TypeScript config and source
 COPY tsconfig.json ./
@@ -17,7 +17,7 @@ COPY src ./src
 # Build TypeScript
 RUN npm run build
 
-# Remove dev dependencies and source files
+# Remove dev dependencies and source files after build
 RUN npm prune --production && \
     rm -rf src tsconfig.json
 
