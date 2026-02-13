@@ -1,85 +1,86 @@
-import { SubscriptionPlan, isToolAllowed } from '../config/constants.js';
-import { logger } from '../utils/logger.js';
-
 /**
- * Tool interface from Amazon MCP
+ * Tool filtering service for tier-based restrictions
  */
-export interface MCPTool {
+
+export interface PlanDetails {
   name: string;
-  description?: string;
-  category?: string;
-  [key: string]: any;
+  price: string;
 }
 
-/**
- * Filter tools based on subscription tier
- * Returns an array of disabled tool names
- */
-export function getDisabledTools(
-  availableTools: MCPTool[],
-  plan: SubscriptionPlan
-): string[] {
-  const disabledTools: string[] = [];
+export const PLAN_DETAILS: Record<string, PlanDetails> = {
+  starter: { name: 'Starter', price: '$49/mo' },
+  professional: { name: 'Professional', price: '$149/mo' },
+  agency: { name: 'Agency', price: '$249/mo' }
+};
 
-  for (const tool of availableTools) {
-    if (!isToolAllowed(tool.name, plan)) {
-      disabledTools.push(tool.name);
-    }
+/**
+ * Check if a tool is allowed for a given plan
+ */
+export function isToolAllowed(toolName: string, userPlan: string): boolean {
+  const normalizedTool = toolName.toLowerCase();
+
+  if (userPlan === 'starter') {
+    // Starter: Only SP write access
+    // Block SB/SD write operations
+    const starterBlockedPatterns = [
+      'create_sponsored_brands',
+      'update_sponsored_brands',
+      'pause_sponsored_brands',
+      'resume_sponsored_brands',
+      'create_sponsored_display',
+      'update_sponsored_display',
+      'pause_sponsored_display',
+      'resume_sponsored_display',
+      'set_budget', // For SB/SD campaigns
+      'dsp' // All DSP operations
+    ];
+
+    return !starterBlockedPatterns.some(pattern => normalizedTool.includes(pattern));
   }
 
-  logger.debug(
-    {
-      plan,
-      totalTools: availableTools.length,
-      disabledCount: disabledTools.length,
-      enabledCount: availableTools.length - disabledTools.length,
-    },
-    'Filtered tools by subscription tier'
-  );
-
-  return disabledTools;
-}
-
-/**
- * Filter tools based on disabled list
- * Instead of just listing disabled tools, we REMOVE them from the tools array
- * This ensures Claude Desktop never sees tools the user can't access
- */
-export function injectDisabledTools(
-  response: any,
-  disabledTools: string[]
-): any {
-  // Clone the response to avoid mutation
-  const modifiedResponse = { ...response };
-
-  // Create a Set for faster lookup
-  const disabledSet = new Set(disabledTools);
-
-  // Filter out disabled tools from the tools array
-  if (modifiedResponse.tools && Array.isArray(modifiedResponse.tools)) {
-    modifiedResponse.tools = modifiedResponse.tools.filter(
-      (tool: MCPTool) => !disabledSet.has(tool.name)
-    );
+  if (userPlan === 'professional') {
+    // Professional: SP, SB, SD full access
+    // Block only DSP
+    return !normalizedTool.includes('dsp');
   }
 
-  // Also include the disabledTools array for transparency/debugging
-  modifiedResponse.disabledTools = disabledTools;
-
-  return modifiedResponse;
+  // Agency: All tools allowed (except global blacklist)
+  return true;
 }
 
 /**
- * Get human-readable tier explanation
+ * Get the required plan for a blocked tool
  */
-export function getTierExplanation(plan: SubscriptionPlan): string {
-  const explanations: Record<SubscriptionPlan, string> = {
-    starter:
-      'Your Starter plan includes read-only access to view campaigns, ads, and reports.',
-    professional:
-      'Your Professional plan includes read and write access to create, update, and manage campaigns.',
-    agency:
-      'Your Agency plan includes full access to all tools except destructive delete operations.',
-  };
+export function getRequiredPlan(toolName: string): 'professional' | 'agency' {
+  const normalizedTool = toolName.toLowerCase();
 
-  return explanations[plan];
+  // DSP requires Agency
+  if (normalizedTool.includes('dsp')) {
+    return 'agency';
+  }
+
+  // SB/SD write operations require Professional
+  if (
+    normalizedTool.includes('sponsored_brands') ||
+    normalizedTool.includes('sponsored_display')
+  ) {
+    return 'professional';
+  }
+
+  return 'professional'; // Default
+}
+
+/**
+ * Generate upgrade message for a blocked tool
+ */
+export function getUpgradeMessage(toolName: string, currentPlan: string): string {
+  const current = PLAN_DETAILS[currentPlan];
+  const requiredTier = getRequiredPlan(toolName);
+  const required = PLAN_DETAILS[requiredTier];
+
+  const featureName = toolName.toLowerCase().includes('dsp')
+    ? 'DSP (Demand-Side Platform) features'
+    : 'Sponsored Brands and Display campaign management';
+
+  return `You're currently on the ${current.name} plan (${current.price}). ${featureName} require${requiredTier === 'agency' ? 's' : ''} ${required.name} (${required.price}). Upgrade at https://app.geenie.io/dashboard/billing to unlock this feature.`;
 }

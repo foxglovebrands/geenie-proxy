@@ -10,6 +10,7 @@ import {
   switchAccount,
   clearActiveAccount,
 } from '../services/account-switcher.js';
+import { isToolAllowed, getUpgradeMessage } from '../services/tool-filter.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
   // MCP proxy route with authentication
@@ -146,6 +147,27 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
               error: {
                 code: -32601,
                 message: `This operation is not permitted for safety reasons. Destructive operations like "${actionPart}" are disabled to protect your campaigns. Please use the Amazon Ads console for this action.`,
+              },
+            });
+          }
+
+          // Check tier-based tool restrictions
+          const userPlan = user.subscription.plan;
+          if (!isToolAllowed(toolName, userPlan)) {
+            const upgradeMessage = getUpgradeMessage(toolName, userPlan);
+
+            logger.warn({
+              userId: user.user_id,
+              toolName,
+              userPlan,
+            }, 'BLOCKED: Tool not allowed for user plan');
+
+            return reply.code(403).send({
+              jsonrpc: '2.0',
+              id: mcpRequest.id,
+              error: {
+                code: -32601,
+                message: upgradeMessage,
               },
             });
           }
