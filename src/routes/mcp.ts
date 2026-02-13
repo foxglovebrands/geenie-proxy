@@ -31,36 +31,109 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
       logger.debug({
         endpoint,
         profileId: account.amazon_profile_id,
-        marketplace: account.marketplace
+        marketplace: account.marketplace,
+        tokenPrefix: accessToken.substring(0, 10) + '...',
+        tokenLength: accessToken.length,
+        requestBody: JSON.stringify(mcpRequest).substring(0, 500)
       }, 'Forwarding to Amazon MCP endpoint');
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        // Required headers for Amazon MCP
+        'Authorization': `Bearer ${accessToken}`,
+        'Amazon-Ads-ClientId': config.lwa.clientId,
+        // Fixed Account Context mode (required!)
+        'Amazon-Ads-AI-Account-Selection-Mode': 'FIXED',
+        'Amazon-Advertising-API-Scope': account.amazon_profile_id,
+        ...(account.amazon_advertiser_account_id && {
+          'Amazon-Ads-AccountID': account.amazon_advertiser_account_id,
+        }),
+      };
+
+      logger.debug({
+        authHeader: `Bearer ${accessToken.substring(0, 20)}...`,
+        clientId: config.lwa.clientId.substring(0, 20) + '...',
+        hasAccountId: !!account.amazon_advertiser_account_id
+      }, 'Request headers prepared');
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Phase 3: Use real Amazon tokens and headers
-          'Authorization': `Bearer ${accessToken}`,
-          'Amazon-Advertising-API-ClientId': config.lwa.clientId,
-          'Amazon-Advertising-API-Scope': account.amazon_profile_id,
-          ...(account.amazon_advertiser_account_id && {
-            'Amazon-Ads-AccountID': account.amazon_advertiser_account_id,
-          }),
-        },
+        headers,
         body: JSON.stringify(mcpRequest),
       });
 
+      const contentType = response.headers.get('content-type') || '';
+
+      logger.info({
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        contentType: contentType
+      }, 'Amazon MCP response status');
+
       if (!response.ok) {
-        logger.error({ status: response.status }, 'Amazon MCP request failed');
+        const errorText = await response.text();
+        logger.error({
+          status: response.status,
+          errorBody: errorText,
+          headers: Object.fromEntries(response.headers.entries())
+        }, 'Amazon MCP request failed');
         return reply.code(response.status).send({
           error: 'Amazon MCP request failed',
+          status: response.status,
+          details: errorText,
         });
       }
 
-      const result = await response.json() as any;
+      // First try to read the response as text to debug
+      const responseText = await response.text();
+      logger.debug({
+        responseLength: responseText.length,
+        responsePreview: responseText.substring(0, 300)
+      }, 'Raw response from Amazon');
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        logger.error({ error: String(e), responseText: responseText.substring(0, 500) }, 'Failed to parse JSON response');
+        throw new Error('Invalid JSON response from Amazon MCP');
+      }
+
+      // Amazon MCP returns JSON-RPC 2.0 format: { jsonrpc, id, result: { tools: [...] } }
+      const mcpResult = result.result || result; // Handle both direct and JSON-RPC envelope
+      const tools = mcpResult.tools || [];
+
+      logger.debug({
+        resultKeys: Object.keys(result || {}),
+        mcpResultKeys: Object.keys(mcpResult || {}),
+        hasTools: !!tools,
+        toolsCount: tools.length,
+        resultType: typeof result,
+        isNull: result === null,
+        resultSample: JSON.stringify(result).substring(0, 200)
+      }, 'Amazon MCP response received');
+
+      // Handle null response from Amazon
+      if (result === null) {
+        logger.warn({
+          status: response.status,
+          contentType: contentType,
+          method: mcpRequest.method
+        }, 'Amazon MCP returned null response - this may indicate SSE/streaming or async processing');
+
+        return reply.code(500).send({
+          error: {
+            code: 'NULL_RESPONSE',
+            message: 'Amazon MCP returned null response. This may indicate the MCP endpoint is using streaming or async protocol.',
+            details: 'HTTP 202 typically indicates async processing. The MCP protocol may require SSE (Server-Sent Events) support.',
+          },
+        });
+      }
 
       // Special handling for tools/list: inject disabledTools based on subscription tier
       if (mcpRequest.method === 'tools/list') {
-        const tools = result.tools || [];
         const disabledTools = getDisabledTools(tools, user.subscription.plan);
 
         logger.info(
@@ -72,11 +145,19 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           'Tools filtered by subscription tier'
         );
 
-        const modifiedResult = injectDisabledTools(result, disabledTools);
+        // Inject disabled tools into the MCP result, not the JSON-RPC envelope
+        const modifiedResult = injectDisabledTools(mcpResult, disabledTools);
+
+        // Return the full JSON-RPC response with modified result
+        const jsonRpcResponse = {
+          jsonrpc: result.jsonrpc || '2.0',
+          id: result.id,
+          result: modifiedResult,
+        };
 
         logger.info({ method: mcpRequest?.method }, 'MCP request completed');
 
-        return modifiedResult;
+        return jsonRpcResponse;
       }
 
       logger.info({ method: mcpRequest?.method }, 'MCP request completed');

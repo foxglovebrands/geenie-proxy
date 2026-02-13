@@ -5,14 +5,15 @@
 // Subscription plans
 export type SubscriptionPlan = 'starter' | 'professional' | 'agency';
 
-// Tools that are ALWAYS disabled for ALL users (destructive operations)
+// Actions that are ALWAYS disabled for ALL users (destructive operations)
+// These match the action part after the namespace (e.g., "delete_campaign" in "campaign_management-delete_campaign")
 export const GLOBAL_BLACKLIST = [
   'delete_campaign',
   'delete_ad',
   'delete_ad_group',
   'delete_target',
-  'delete_keyword',
-  'delete_product_ad',
+  'delete_ad_association',
+  // Note: delete_report and delete_subscription are allowed - users should be able to clean up their own reports/subscriptions
 ];
 
 // Tool prefixes allowed by plan tier
@@ -20,7 +21,11 @@ export const TIER_RESTRICTIONS: Record<SubscriptionPlan, string[]> = {
   // Starter: Read-only access (view data, generate reports, check billing)
   starter: [
     'get_',
+    'get',       // Some tools use 'get' without underscore (e.g., user_invitation-get)
     'list_',
+    'list',      // Some tools use 'list' without underscore
+    'query_',    // Amazon uses query_ for read operations
+    'retrieve_', // Amazon uses retrieve_ for read operations
     'describe_',
     'report_',
     'billing_',
@@ -30,17 +35,27 @@ export const TIER_RESTRICTIONS: Record<SubscriptionPlan, string[]> = {
   // Professional: Read + Write (can create, update, pause, resume campaigns/ads)
   professional: [
     'get_',
+    'get',
     'list_',
+    'list',
+    'query_',
+    'retrieve_',
     'describe_',
     'report_',
     'billing_',
     'account_info_',
     'create_',
+    'create',    // Some tools use 'create' without underscore
     'update_',
+    'update',    // Some tools use 'update' without underscore
+    'add_',
+    'associate_',
+    'disassociate_',
     'pause_',
     'resume_',
     'enable_',
     'disable_',
+    'redeem',    // User invitation redemption
   ],
 
   // Agency: Full access (except global blacklist)
@@ -51,8 +66,12 @@ export const TIER_RESTRICTIONS: Record<SubscriptionPlan, string[]> = {
  * Check if a tool is allowed for a given subscription plan
  */
 export function isToolAllowed(toolName: string, plan: SubscriptionPlan): boolean {
-  // Always block global blacklist
-  if (GLOBAL_BLACKLIST.includes(toolName)) {
+  // Amazon MCP tools use format: "namespace-action_name" (e.g., "campaign_management-get_campaigns")
+  // Extract the action part (everything after the first dash)
+  const actionPart = toolName.includes('-') ? toolName.split('-')[1] : toolName;
+
+  // Always block global blacklist (check action part)
+  if (GLOBAL_BLACKLIST.includes(actionPart)) {
     return false;
   }
 
@@ -62,6 +81,6 @@ export function isToolAllowed(toolName: string, plan: SubscriptionPlan): boolean
     return true;
   }
 
-  // Check if tool starts with any allowed prefix
-  return allowedPrefixes.some((prefix) => toolName.startsWith(prefix));
+  // Check if the action starts with any allowed prefix
+  return allowedPrefixes.some((prefix) => actionPart.startsWith(prefix));
 }
