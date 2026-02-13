@@ -1,10 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
-  // Basic MCP proxy route (no auth yet)
-  fastify.post('/mcp', async (request, reply) => {
+  // MCP proxy route with authentication
+  fastify.post('/mcp', {
+    preHandler: authMiddleware, // Add auth middleware
+  }, async (request, reply) => {
     const mcpRequest = request.body as any;
 
     logger.info({ method: mcpRequest?.method }, 'MCP request received');
