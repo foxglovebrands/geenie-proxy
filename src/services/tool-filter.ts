@@ -41,7 +41,9 @@ export function getDisabledTools(
 }
 
 /**
- * Inject disabledTools into tools/list response
+ * Filter tools based on disabled list
+ * Instead of just listing disabled tools, we REMOVE them from the tools array
+ * This ensures Claude Desktop never sees tools the user can't access
  */
 export function injectDisabledTools(
   response: any,
@@ -50,7 +52,17 @@ export function injectDisabledTools(
   // Clone the response to avoid mutation
   const modifiedResponse = { ...response };
 
-  // Add disabledTools array to response
+  // Create a Set for faster lookup
+  const disabledSet = new Set(disabledTools);
+
+  // Filter out disabled tools from the tools array
+  if (modifiedResponse.tools && Array.isArray(modifiedResponse.tools)) {
+    modifiedResponse.tools = modifiedResponse.tools.filter(
+      (tool: MCPTool) => !disabledSet.has(tool.name)
+    );
+  }
+
+  // Also include the disabledTools array for transparency/debugging
   modifiedResponse.disabledTools = disabledTools;
 
   return modifiedResponse;

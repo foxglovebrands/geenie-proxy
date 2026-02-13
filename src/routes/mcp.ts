@@ -200,9 +200,11 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         const modifiedResult = injectDisabledTools(mcpResult, disabledTools);
 
         logger.info({
-          hasDisabledTools: !!modifiedResult.disabledTools,
+          originalToolCount: tools.length,
+          filteredToolCount: modifiedResult.tools?.length || 0,
           disabledToolsCount: modifiedResult.disabledTools?.length || 0,
-        }, 'DisabledTools injected into result');
+          removedCount: tools.length - (modifiedResult.tools?.length || 0),
+        }, 'Tools filtered and disabled tools removed from response');
 
         // Return the full JSON-RPC response with modified result
         const jsonRpcResponse = {
