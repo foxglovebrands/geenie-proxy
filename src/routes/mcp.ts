@@ -324,6 +324,15 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
               required: [],
             },
           },
+          {
+            name: 'geenie_test_dsp',
+            description: 'Test tool for DSP tier blocking - This tool is only available on Agency plan ($249/mo)',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: [],
+            },
+          },
         ];
 
         // Filter out Amazon's native account listing tools to avoid confusion
