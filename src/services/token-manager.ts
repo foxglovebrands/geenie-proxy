@@ -1,6 +1,7 @@
 import { supabase } from './supabase.js';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { getActiveAccount } from './account-switcher.js';
 
 // Amazon account interface
 export interface AmazonAccount {
@@ -25,22 +26,23 @@ export interface ValidToken {
 /**
  * Get a valid Amazon access token for the user
  * Automatically refreshes if token is expired
+ *
+ * @param userId - The user's ID
+ * @param profileId - Optional specific profile ID to use
+ * @param requestContext - Optional request context for smart account selection
  */
 export async function getValidAccessToken(
   userId: string,
-  profileId?: string
+  profileId?: string,
+  requestContext?: any
 ): Promise<ValidToken> {
   // Fetch user's Amazon accounts
   let query = supabase
     .from('amazon_accounts')
     .select('*')
     .eq('user_id', userId)
-    .eq('connection_status', 'connected');
-
-  // If profileId specified, filter by it
-  if (profileId) {
-    query = query.eq('amazon_profile_id', profileId);
-  }
+    .eq('connection_status', 'connected')
+    .order('created_at', { ascending: true }); // Consistent ordering
 
   const { data: accounts, error } = await query;
 
@@ -48,8 +50,126 @@ export async function getValidAccessToken(
     throw new Error('NO_CONNECTED_ACCOUNTS');
   }
 
-  // Use first account (or the one matching profileId)
-  const account = accounts[0] as AmazonAccount;
+  let account: AmazonAccount | undefined;
+
+  // Strategy 0: User's active account preference (set via account switcher)
+  const activeAccount = await getActiveAccount(userId);
+  if (activeAccount && !profileId) {
+    // Only use active account if no explicit profileId was requested
+    const matched = accounts.find((a) => a.id === activeAccount.id);
+    if (matched) {
+      account = matched as AmazonAccount;
+      logger.info(
+        { accountName: account.account_name, profileId: account.amazon_profile_id },
+        'Using active account preference'
+      );
+    } else {
+      // Active account is no longer connected, fall through to other strategies
+      logger.warn(
+        { activeAccountId: activeAccount.id },
+        'Active account no longer connected, using fallback selection'
+      );
+    }
+  }
+
+  // If no account selected yet, try other strategies
+  if (!account) {
+    // Strategy 1: Explicit profileId provided
+    if (profileId) {
+    const matched = accounts.find((a) => a.amazon_profile_id === profileId);
+    if (matched) {
+      account = matched as AmazonAccount;
+      logger.info({ profileId, marketplace: account.marketplace }, 'Selected account by profileId');
+    } else {
+      logger.warn({ profileId }, 'ProfileId not found, using first account');
+      account = accounts[0] as AmazonAccount;
+    }
+  }
+  // Strategy 2: Smart selection based on request context
+  else if (requestContext && accounts.length > 1) {
+    const contextString = JSON.stringify(requestContext).toLowerCase();
+
+    // Try to match by advertiser account ID, account name, or marketplace
+    const marketplaceMatches = accounts.filter((a) => {
+      const marketplace = a.marketplace.toLowerCase();
+      const accountName = (a.account_name || '').toLowerCase();
+      const advertiserId = (a.amazon_advertiser_account_id || '').toLowerCase();
+      const profileId = a.amazon_profile_id.toLowerCase();
+
+      // Priority 1: Check for advertiser account ID (most specific)
+      if (advertiserId && contextString.includes(advertiserId)) {
+        logger.info({ advertiserId }, 'Matched by advertiser account ID');
+        return true;
+      }
+
+      // Priority 2: Check for profile ID
+      if (contextString.includes(profileId)) {
+        logger.info({ profileId }, 'Matched by profile ID');
+        return true;
+      }
+
+      // Priority 3: Check for account name (if user named their accounts)
+      if (accountName && contextString.includes(accountName)) {
+        logger.info({ accountName }, 'Matched by account name');
+        return true;
+      }
+
+      // Priority 4: Check for marketplace references
+      if (contextString.includes(marketplace)) {
+        logger.info({ marketplace }, 'Matched by marketplace URL');
+        return true;
+      }
+
+      // Priority 5: Common marketplace aliases
+      const matchesAlias = (
+        (marketplace.includes('amazon.com') && (contextString.includes('us') || contextString.includes('usa') || contextString.includes('united states'))) ||
+        (marketplace.includes('amazon.co.uk') && (contextString.includes('uk') || contextString.includes('britain'))) ||
+        (marketplace.includes('amazon.de') && (contextString.includes('germany') || contextString.includes('de'))) ||
+        (marketplace.includes('amazon.fr') && (contextString.includes('france') || contextString.includes('fr'))) ||
+        (marketplace.includes('amazon.ca') && (contextString.includes('canada') || contextString.includes('ca')))
+      );
+
+      if (matchesAlias) {
+        logger.info({ marketplace, hint: 'alias' }, 'Matched by marketplace alias');
+        return true;
+      }
+
+      return false;
+    });
+
+    if (marketplaceMatches.length === 1) {
+      account = marketplaceMatches[0] as AmazonAccount;
+      logger.info(
+        { marketplace: account.marketplace, hint: 'context' },
+        'Smart-selected account based on request context'
+      );
+    } else if (marketplaceMatches.length > 1) {
+      // Multiple matches - use first one but log warning
+      account = marketplaceMatches[0] as AmazonAccount;
+      logger.warn(
+        { matchCount: marketplaceMatches.length, selected: account.marketplace },
+        'Multiple accounts matched context, using first'
+      );
+    } else {
+      // No matches - default to first account
+      account = accounts[0] as AmazonAccount;
+      logger.info({ marketplace: account.marketplace }, 'No context match, using first account');
+    }
+  }
+    // Strategy 3: Default to first account
+    else {
+      account = accounts[0] as AmazonAccount;
+      logger.info(
+        { marketplace: account.marketplace, totalAccounts: accounts.length },
+        'Using first account (default)'
+      );
+    }
+  } // End of: if (!account)
+
+  // At this point, account should always be defined
+  if (!account) {
+    throw new Error('Failed to select Amazon account');
+  }
 
   logger.info(
     {
