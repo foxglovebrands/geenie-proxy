@@ -182,6 +182,8 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
 
       // Special handling for tools/list: inject disabledTools based on subscription tier
       if (mcpRequest.method === 'tools/list') {
+        logger.info({ toolsAvailable: tools.length, planType: user.subscription.plan }, 'Processing tools/list request');
+
         const disabledTools = getDisabledTools(tools, user.subscription.plan);
 
         logger.info(
@@ -189,12 +191,18 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
             plan: user.subscription.plan,
             totalTools: tools.length,
             disabledCount: disabledTools.length,
+            disabledTools: disabledTools.slice(0, 5), // Log first 5 disabled tools
           },
           'Tools filtered by subscription tier'
         );
 
         // Inject disabled tools into the MCP result, not the JSON-RPC envelope
         const modifiedResult = injectDisabledTools(mcpResult, disabledTools);
+
+        logger.info({
+          hasDisabledTools: !!modifiedResult.disabledTools,
+          disabledToolsCount: modifiedResult.disabledTools?.length || 0,
+        }, 'DisabledTools injected into result');
 
         // Return the full JSON-RPC response with modified result
         const jsonRpcResponse = {
@@ -203,7 +211,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           result: modifiedResult,
         };
 
-        logger.info({ method: mcpRequest?.method }, 'MCP request completed');
+        logger.info({ method: mcpRequest?.method, responseKeys: Object.keys(jsonRpcResponse.result) }, 'MCP request completed');
 
         return jsonRpcResponse;
       }
