@@ -160,6 +160,54 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         return jsonRpcResponse;
       }
 
+      // CRITICAL: Validate tool calls before forwarding to Amazon
+      if (mcpRequest.method === 'tools/call') {
+        const toolName = mcpRequest.params?.name;
+
+        if (!toolName) {
+          logger.warn({ request: mcpRequest }, 'tools/call missing tool name');
+          return reply.code(400).send({
+            jsonrpc: '2.0',
+            id: mcpRequest.id,
+            error: {
+              code: -32602,
+              message: 'Invalid params: missing tool name',
+            },
+          });
+        }
+
+        // Check if this tool is allowed for the user's plan
+        const { isToolAllowed } = await import('../config/constants.js');
+
+        if (!isToolAllowed(toolName, user.subscription.plan)) {
+          logger.warn({
+            userId: user.user_id,
+            plan: user.subscription.plan,
+            toolName,
+          }, 'BLOCKED: Unauthorized tool call attempt');
+
+          return reply.code(403).send({
+            jsonrpc: '2.0',
+            id: mcpRequest.id,
+            error: {
+              code: -32001,
+              message: `Tool "${toolName}" is not available on your ${user.subscription.plan} plan. Upgrade to Professional or Agency to access write operations.`,
+              data: {
+                tool: toolName,
+                currentPlan: user.subscription.plan,
+                upgradeUrl: 'https://app.geenie.io/dashboard/billing',
+              },
+            },
+          });
+        }
+
+        logger.info({
+          userId: user.user_id,
+          plan: user.subscription.plan,
+          toolName,
+        }, 'Tool call authorized');
+      }
+
       logger.info({ method: mcpRequest?.method }, 'MCP request completed');
 
       return result;
