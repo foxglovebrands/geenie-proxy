@@ -272,7 +272,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         const geenieTools = [
           {
             name: 'geenie_list_accounts',
-            description: 'List all connected Amazon Advertising accounts and see which one is currently active',
+            description: '**IMPORTANT: Use this first** - Lists all Amazon Advertising accounts registered in Geenie and shows which account is currently active. This is the ONLY tool that shows your registered accounts. Use this before any account operations.',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -281,13 +281,13 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
           {
             name: 'geenie_switch_account',
-            description: 'Switch to a different Amazon Advertising account. Use this when you need to work with a specific advertiser account.',
+            description: 'Switch to a different Amazon Advertising account registered in Geenie. After switching, all subsequent operations will use the selected account until you switch again.',
             inputSchema: {
               type: 'object',
               properties: {
                 account_name: {
                   type: 'string',
-                  description: 'The name, profile ID, or advertiser account ID of the account to switch to',
+                  description: 'The account name, profile ID, or advertiser account ID to switch to (from geenie_list_accounts)',
                 },
               },
               required: ['account_name'],
@@ -295,7 +295,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
           {
             name: 'geenie_get_active_account',
-            description: 'Get the currently active Amazon Advertising account',
+            description: 'Shows which Amazon Advertising account is currently active for all operations',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -304,12 +304,34 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
         ];
 
+        // Filter out Amazon's native account listing tools to avoid confusion
+        const filteredAmazonTools = result.result.tools.filter((tool: any) => {
+          const toolName = tool.name?.toLowerCase() || '';
+          // Remove tools that list/get profiles or accounts (Geenie handles this)
+          const isAccountListingTool =
+            toolName.includes('list_profile') ||
+            toolName.includes('get_profile') ||
+            toolName.includes('list_account') ||
+            toolName.includes('get_account');
+
+          if (isAccountListingTool) {
+            logger.info({ toolName: tool.name }, 'Filtered out Amazon account listing tool');
+          }
+
+          return !isAccountListingTool;
+        });
+
         // Add Geenie tools to the beginning of the tools array
-        result.result.tools = [...geenieTools, ...result.result.tools];
+        result.result.tools = [...geenieTools, ...filteredAmazonTools];
 
         logger.info(
-          { geenieToolsCount: geenieTools.length, totalToolsCount: result.result.tools.length },
-          'Injected Geenie custom tools into tools/list response'
+          {
+            geenieToolsCount: geenieTools.length,
+            amazonToolsCount: filteredAmazonTools.length,
+            totalToolsCount: result.result.tools.length,
+            filteredCount: result.result.tools.length - filteredAmazonTools.length - geenieTools.length
+          },
+          'Injected Geenie custom tools and filtered Amazon account tools'
         );
       }
 
