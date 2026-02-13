@@ -3,7 +3,7 @@ import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getValidAccessToken } from '../services/token-manager.js';
-import { getDisabledTools, injectDisabledTools } from '../services/tool-filter.js';
+import { getDisabledTools, injectDisabledTools, MCPTool } from '../services/tool-filter.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
   // MCP proxy route with authentication
@@ -183,6 +183,9 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
       // Special handling for tools/list: inject disabledTools based on subscription tier
       if (mcpRequest.method === 'tools/list') {
         logger.info({ toolsAvailable: tools.length, planType: user.subscription.plan }, 'Processing tools/list request');
+
+        // TEMPORARY: Log all tool names to see full list
+        logger.info({ allToolNames: tools.map((t: MCPTool) => t.name) }, 'FULL TOOLS LIST FROM AMAZON');
 
         const disabledTools = getDisabledTools(tools, user.subscription.plan);
 
