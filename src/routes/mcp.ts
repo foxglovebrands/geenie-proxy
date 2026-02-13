@@ -3,7 +3,7 @@ import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getValidAccessToken } from '../services/token-manager.js';
-import { getDisabledTools, injectDisabledTools, MCPTool } from '../services/tool-filter.js';
+import { GLOBAL_BLACKLIST } from '../config/constants.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
   // MCP proxy route with authentication
@@ -19,52 +19,33 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     }, 'MCP request received');
 
     try {
-      // CRITICAL: Validate tool calls BEFORE forwarding to Amazon
+      // CRITICAL: Block globally blacklisted destructive operations for ALL users
       if (mcpRequest.method === 'tools/call') {
         const toolName = mcpRequest.params?.name;
 
-        if (!toolName) {
-          logger.warn({ request: mcpRequest }, 'tools/call missing tool name');
-          return reply.code(400).send({
-            jsonrpc: '2.0',
-            id: mcpRequest.id,
-            error: {
-              code: -32602,
-              message: 'Invalid params: missing tool name',
-            },
-          });
+        if (toolName) {
+          // Extract action part (after the dash in "namespace-action")
+          const actionPart = toolName.includes('-') ? toolName.split('-')[1] : toolName;
+
+          // Check if this is a globally blacklisted destructive operation
+          if (GLOBAL_BLACKLIST.includes(actionPart)) {
+            logger.warn({
+              userId: user.user_id,
+              toolName,
+              actionPart,
+            }, 'BLOCKED: Globally blacklisted destructive operation attempted');
+
+            // Return error explaining this operation is not allowed
+            return reply.code(403).send({
+              jsonrpc: '2.0',
+              id: mcpRequest.id,
+              error: {
+                code: -32601,
+                message: `This operation is not permitted for safety reasons. Destructive operations like "${actionPart}" are disabled to protect your campaigns. Please use the Amazon Ads console for this action.`,
+              },
+            });
+          }
         }
-
-        // Check if this tool is allowed for the user's plan
-        const { isToolAllowed } = await import('../config/constants.js');
-
-        if (!isToolAllowed(toolName, user.subscription.plan)) {
-          logger.warn({
-            userId: user.user_id,
-            plan: user.subscription.plan,
-            toolName,
-          }, 'BLOCKED: Unauthorized tool call attempt');
-
-          // Return SUCCESS with clear upgrade message (so Claude shows it to user)
-          // Using error response causes Claude to treat it as temporary failure and retry
-          return reply.code(200).send({
-            jsonrpc: '2.0',
-            id: mcpRequest.id,
-            result: {
-              content: [{
-                type: 'text',
-                text: `⚠️ **Plan Upgrade Required**\n\nThis action requires a Professional or Agency plan.\n\n**Your current plan:** ${user.subscription.plan}\n**Tool attempted:** ${toolName}\n\n✨ **Upgrade to unlock:**\n- Create and modify campaigns\n- Add and manage keywords\n- Update bids and budgets\n- Full write access to Amazon Advertising\n\n👉 Upgrade now: https://app.geenie.io/dashboard/billing`
-              }],
-              isError: false
-            }
-          });
-        }
-
-        logger.info({
-          userId: user.user_id,
-          plan: user.subscription.plan,
-          toolName,
-        }, 'Tool call authorized - forwarding to Amazon');
       }
 
       // Get valid Amazon access token (auto-refreshes if expired)
@@ -178,62 +159,6 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
             details: 'HTTP 202 typically indicates async processing. The MCP protocol may require SSE (Server-Sent Events) support.',
           },
         });
-      }
-
-      // Special handling for tools/list: inject disabledTools based on subscription tier
-      if (mcpRequest.method === 'tools/list') {
-        logger.info({ toolsAvailable: tools.length, planType: user.subscription.plan }, 'Processing tools/list request');
-
-        // TEMPORARY: Log all tool names to see full list
-        logger.info({ allToolNames: tools.map((t: MCPTool) => t.name) }, 'FULL TOOLS LIST FROM AMAZON');
-
-        const disabledTools = getDisabledTools(tools, user.subscription.plan);
-
-        logger.info(
-          {
-            plan: user.subscription.plan,
-            totalTools: tools.length,
-            disabledCount: disabledTools.length,
-            disabledTools: disabledTools.slice(0, 5), // Log first 5 disabled tools
-          },
-          'Tools filtered by subscription tier'
-        );
-
-        // Inject disabled tools into the MCP result, not the JSON-RPC envelope
-        const modifiedResult = injectDisabledTools(mcpResult, disabledTools);
-
-        // Add plan capabilities metadata so Claude can reference it
-        modifiedResult.geenie_capabilities = {
-          plan: user.subscription.plan,
-          access_level: user.subscription.plan === 'starter' ? 'read-only' :
-                       user.subscription.plan === 'professional' ? 'read-write' : 'full-access',
-          description: user.subscription.plan === 'starter'
-            ? 'Your Starter plan includes read-only access to view campaigns, ads, keywords, and reports. Upgrade to Professional or Agency plan for write access.'
-            : user.subscription.plan === 'professional'
-            ? 'Your Professional plan includes read and write access to create, update, and manage campaigns.'
-            : 'Your Agency plan includes full access to all Amazon Advertising tools.',
-          upgrade_url: 'https://app.geenie.io/dashboard/billing',
-          tools_available: modifiedResult.tools?.length || 0,
-          tools_restricted: disabledTools.length
-        };
-
-        logger.info({
-          originalToolCount: tools.length,
-          filteredToolCount: modifiedResult.tools?.length || 0,
-          disabledToolsCount: modifiedResult.disabledTools?.length || 0,
-          removedCount: tools.length - (modifiedResult.tools?.length || 0),
-        }, 'Tools filtered and disabled tools removed from response');
-
-        // Return the full JSON-RPC response with modified result
-        const jsonRpcResponse = {
-          jsonrpc: result.jsonrpc || '2.0',
-          id: result.id,
-          result: modifiedResult,
-        };
-
-        logger.info({ method: mcpRequest?.method, responseKeys: Object.keys(jsonRpcResponse.result) }, 'MCP request completed');
-
-        return jsonRpcResponse;
       }
 
       logger.info({ method: mcpRequest?.method }, 'MCP request completed');
