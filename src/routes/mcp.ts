@@ -199,6 +199,21 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         // Inject disabled tools into the MCP result, not the JSON-RPC envelope
         const modifiedResult = injectDisabledTools(mcpResult, disabledTools);
 
+        // Add plan capabilities metadata so Claude can reference it
+        modifiedResult.geenie_capabilities = {
+          plan: user.subscription.plan,
+          access_level: user.subscription.plan === 'starter' ? 'read-only' :
+                       user.subscription.plan === 'professional' ? 'read-write' : 'full-access',
+          description: user.subscription.plan === 'starter'
+            ? 'Your Starter plan includes read-only access to view campaigns, ads, keywords, and reports. Upgrade to Professional or Agency plan for write access.'
+            : user.subscription.plan === 'professional'
+            ? 'Your Professional plan includes read and write access to create, update, and manage campaigns.'
+            : 'Your Agency plan includes full access to all Amazon Advertising tools.',
+          upgrade_url: 'https://app.geenie.io/dashboard/billing',
+          tools_available: modifiedResult.tools?.length || 0,
+          tools_restricted: disabledTools.length
+        };
+
         logger.info({
           originalToolCount: tools.length,
           filteredToolCount: modifiedResult.tools?.length || 0,
