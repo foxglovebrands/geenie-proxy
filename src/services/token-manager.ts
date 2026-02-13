@@ -135,7 +135,7 @@ async function refreshAmazonToken(account: AmazonAccount): Promise<string> {
     throw new Error(`Token refresh failed: ${response.status}`);
   }
 
-  const tokens = await response.json();
+  const tokens = await response.json() as { access_token: string; expires_in: number };
 
   // Calculate new expiry time (Amazon tokens expire in 3600 seconds = 1 hour)
   const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);

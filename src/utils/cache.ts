@@ -25,8 +25,12 @@ export async function getCached<T>(
   // Not in cache, fetch it
   const value = await fetcher();
 
-  // Store in cache
-  cache.set(key, value, ttl);
+  // Store in cache (with TTL if provided, otherwise use default)
+  if (ttl !== undefined) {
+    cache.set(key, value, ttl);
+  } else {
+    cache.set(key, value);
+  }
 
   return value;
 }

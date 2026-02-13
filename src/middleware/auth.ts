@@ -119,8 +119,7 @@ export async function authMiddleware(
       .eq('key_hash', keyHash)
       .then(() => {
         request.log.debug('Updated last_used_at for API key');
-      })
-      .catch((error) => {
+      }, (error: any) => {
         request.log.error({ error }, 'Failed to update last_used_at');
       });
 
