@@ -3,6 +3,7 @@ import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getValidAccessToken } from '../services/token-manager.js';
+import { getDisabledTools, injectDisabledTools } from '../services/tool-filter.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
   // MCP proxy route with authentication
@@ -55,7 +56,28 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
+
+      // Special handling for tools/list: inject disabledTools based on subscription tier
+      if (mcpRequest.method === 'tools/list') {
+        const tools = result.tools || [];
+        const disabledTools = getDisabledTools(tools, user.subscription.plan);
+
+        logger.info(
+          {
+            plan: user.subscription.plan,
+            totalTools: tools.length,
+            disabledCount: disabledTools.length,
+          },
+          'Tools filtered by subscription tier'
+        );
+
+        const modifiedResult = injectDisabledTools(result, disabledTools);
+
+        logger.info({ method: mcpRequest?.method }, 'MCP request completed');
+
+        return modifiedResult;
+      }
 
       logger.info({ method: mcpRequest?.method }, 'MCP request completed');
 
