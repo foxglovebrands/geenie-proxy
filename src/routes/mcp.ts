@@ -45,18 +45,18 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
             toolName,
           }, 'BLOCKED: Unauthorized tool call attempt');
 
-          return reply.code(403).send({
+          // Return SUCCESS with clear upgrade message (so Claude shows it to user)
+          // Using error response causes Claude to treat it as temporary failure and retry
+          return reply.code(200).send({
             jsonrpc: '2.0',
             id: mcpRequest.id,
-            error: {
-              code: -32001,
-              message: `Tool "${toolName}" is not available on your ${user.subscription.plan} plan. Upgrade to Professional or Agency to access write operations.`,
-              data: {
-                tool: toolName,
-                currentPlan: user.subscription.plan,
-                upgradeUrl: 'https://app.geenie.io/dashboard/billing',
-              },
-            },
+            result: {
+              content: [{
+                type: 'text',
+                text: `⚠️ **Plan Upgrade Required**\n\nThis action requires a Professional or Agency plan.\n\n**Your current plan:** ${user.subscription.plan}\n**Tool attempted:** ${toolName}\n\n✨ **Upgrade to unlock:**\n- Create and modify campaigns\n- Add and manage keywords\n- Update bids and budgets\n- Full write access to Amazon Advertising\n\n👉 Upgrade now: https://app.geenie.io/dashboard/billing`
+              }],
+              isError: false
+            }
           });
         }
 
