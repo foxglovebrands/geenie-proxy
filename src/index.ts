@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import { config } from './config/env.js';
 import healthRoutes from './routes/health.js';
 import mcpRoutes from './routes/mcp.js';
@@ -28,6 +29,9 @@ await fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
 });
+
+// Register form body parser (for OAuth login form submission)
+await fastify.register(formbody);
 
 // Register routes
 await fastify.register(healthRoutes);
