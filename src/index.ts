@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { config } from './config/env.js';
 import healthRoutes from './routes/health.js';
 import mcpRoutes from './routes/mcp.js';
+import oauthRoutes from './routes/oauth.js';
 
 const fastify = Fastify({
   logger: {
@@ -31,6 +32,7 @@ await fastify.register(cors, {
 // Register routes
 await fastify.register(healthRoutes);
 await fastify.register(mcpRoutes);
+await fastify.register(oauthRoutes); // OAuth endpoints for web/mobile
 
 // Start server
 const start = async () => {
@@ -44,6 +46,7 @@ const start = async () => {
     fastify.log.info(`📍 Listening on http://localhost:${config.port}`);
     fastify.log.info(`🏥 Health check: http://localhost:${config.port}/health`);
     fastify.log.info(`🔌 MCP endpoint: http://localhost:${config.port}/mcp`);
+    fastify.log.info(`🔐 OAuth endpoints: /oauth/authorize, /oauth/login, /oauth/token`);
     fastify.log.info(`📝 Environment: ${config.nodeEnv}`);
   } catch (err) {
     fastify.log.error(err);
