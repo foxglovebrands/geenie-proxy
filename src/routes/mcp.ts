@@ -21,19 +21,33 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     const authHeader = request.headers.authorization;
     const sessionHeader = request.headers['mcp-session-id'] as string | undefined;
 
+    // Extract token from Authorization header to determine auth type
+    const bearerToken = authHeader?.startsWith('Bearer ')
+      ? authHeader.replace('Bearer ', '').trim()
+      : null;
+
+    // Determine authentication type by checking token prefix:
+    // - Desktop API keys start with "sk_live_"
+    // - OAuth session tokens start with "session_"
+    const isDesktopApiKey = bearerToken?.startsWith('sk_live_');
+    const isOAuthSession = bearerToken?.startsWith('session_') || !!sessionHeader;
+
     logger.debug({
       hasAuthHeader: !!authHeader,
       hasSessionHeader: !!sessionHeader,
-      authType: authHeader ? 'bearer' : sessionHeader ? 'oauth' : 'none',
+      bearerTokenPrefix: bearerToken?.substring(0, 10),
+      isDesktopApiKey,
+      isOAuthSession,
+      authType: isDesktopApiKey ? 'desktop' : isOAuthSession ? 'oauth' : 'none',
       path: request.url
     }, 'Authentication check');
 
     // Route to appropriate authentication middleware
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      // DESKTOP PATH: Use existing Bearer token authentication
+    if (isDesktopApiKey) {
+      // DESKTOP PATH: Bearer token with API key (sk_live_xxx)
       await authMiddleware(request, reply);
-    } else if (sessionHeader) {
-      // WEB PATH: Use new OAuth session authentication
+    } else if (isOAuthSession) {
+      // WEB PATH: Bearer token with session ID (session_xxx) or legacy Mcp-Session-Id header
       await authOAuthMiddleware(request, reply);
     } else {
       // No valid authentication provided
