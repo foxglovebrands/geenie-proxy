@@ -69,10 +69,8 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
         .insert({
           client_id,
           client_secret,
-          client_name: client_name || 'Claude.ai',
+          name: client_name || 'Claude.ai',
           redirect_uris,
-          grant_types: grant_types || ['authorization_code'],
-          response_types: response_types || ['code'],
         });
 
       if (error) {
