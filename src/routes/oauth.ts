@@ -9,6 +9,22 @@ import { logger } from '../utils/logger.js';
 
 export default async function oauthRoutes(fastify: FastifyInstance) {
 
+  // OAuth Authorization Server Metadata (RFC 8414)
+  // This endpoint tells Claude.ai where our OAuth endpoints are
+  fastify.get('/.well-known/oauth-authorization-server', async (request, reply) => {
+    const baseUrl = 'https://api.geenie.io';
+
+    return reply.send({
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+      code_challenge_methods_supported: ['plain', 'S256'],
+    });
+  });
+
   // Step 1: Authorization endpoint - Shows login form
   // Called by claude.ai when user adds Geenie connector
   fastify.get('/oauth/authorize', async (request, reply) => {
