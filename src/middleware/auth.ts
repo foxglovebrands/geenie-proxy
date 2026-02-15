@@ -17,15 +17,19 @@ export async function authMiddleware(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  // Extract request ID for JSON-RPC responses
+  const requestId = (request.body as any)?.id || null;
+
   // Extract API key from Authorization header
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return reply.code(401).send({
+      jsonrpc: '2.0',
+      id: requestId,
       error: {
-        code: 'MISSING_API_KEY',
-        message: 'API key is required in Authorization header',
-        help: 'Add your API key: Authorization: Bearer sk_live_xxxxx',
+        code: -32001,
+        message: 'API key is required in Authorization header (Bearer sk_live_xxxxx)',
       },
     });
   }
@@ -36,8 +40,10 @@ export async function authMiddleware(
   // Validate key format (should start with sk_live_)
   if (!apiKey.startsWith('sk_live_')) {
     return reply.code(401).send({
+      jsonrpc: '2.0',
+      id: requestId,
       error: {
-        code: 'INVALID_API_KEY_FORMAT',
+        code: -32001,
         message: 'API key must start with sk_live_',
       },
     });
@@ -95,16 +101,16 @@ export async function authMiddleware(
 
     if (!isActive && !isTrialing) {
       return reply.code(403).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'SUBSCRIPTION_EXPIRED',
+          code: -32002,
           message:
             status === 'past_due'
-              ? 'Your payment failed. Please update your payment method.'
+              ? 'Subscription expired: Payment failed. Update at https://app.geenie.io/dashboard/billing'
               : status === 'canceled'
-                ? 'Your subscription has been canceled.'
-                : 'Your subscription is inactive.',
-          action: 'update_billing',
-          url: 'https://app.geenie.io/dashboard/billing',
+                ? 'Subscription canceled. Reactivate at https://app.geenie.io/dashboard/billing'
+                : 'Subscription inactive. Visit https://app.geenie.io/dashboard/billing',
         },
       });
     }
@@ -127,21 +133,22 @@ export async function authMiddleware(
   } catch (error: any) {
     if (error.message === 'INVALID_API_KEY') {
       return reply.code(401).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'INVALID_API_KEY',
-          message: 'Invalid or inactive API key',
-          help: 'Generate a new API key at https://app.geenie.io/dashboard/settings',
+          code: -32001,
+          message: 'Invalid or inactive API key. Generate new at https://app.geenie.io/dashboard/settings',
         },
       });
     }
 
     if (error.message === 'NO_SUBSCRIPTION') {
       return reply.code(403).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'NO_SUBSCRIPTION',
-          message: 'No active subscription found',
-          action: 'subscribe',
-          url: 'https://app.geenie.io/dashboard/billing',
+          code: -32002,
+          message: 'No active subscription found. Subscribe at https://app.geenie.io/dashboard/billing',
         },
       });
     }
@@ -149,9 +156,11 @@ export async function authMiddleware(
     request.log.error({ error }, 'Authentication error');
 
     return reply.code(500).send({
+      jsonrpc: '2.0',
+      id: requestId,
       error: {
-        code: 'INTERNAL_ERROR',
-        message: 'An unexpected error occurred during authentication',
+        code: -32603,
+        message: 'Internal error during authentication',
       },
     });
   }

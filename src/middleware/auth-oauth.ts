@@ -23,16 +23,20 @@ export async function authOAuthMiddleware(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  // Extract request ID for JSON-RPC responses
+  const requestId = (request.body as any)?.id || null;
+
   // Extract session ID from Mcp-Session-Id header
   const sessionId = request.headers['mcp-session-id'] as string;
 
   if (!sessionId) {
     logger.warn('OAuth auth attempted without Mcp-Session-Id header');
     return reply.code(401).send({
+      jsonrpc: '2.0',
+      id: requestId,
       error: {
-        code: 'MISSING_SESSION',
+        code: -32001,
         message: 'Mcp-Session-Id header required for OAuth authentication',
-        help: 'Web users must authenticate via /oauth/authorize first',
       },
     });
   }
@@ -50,10 +54,11 @@ export async function authOAuthMiddleware(
     if (sessionError || !session) {
       logger.warn({ sessionId: sessionId.substring(0, 16), error: sessionError }, 'Invalid OAuth session');
       return reply.code(401).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'INVALID_SESSION',
-          message: 'Invalid or expired session',
-          help: 'Please log in again at https://claude.ai',
+          code: -32001,
+          message: 'Invalid or expired session. Please log in again at https://claude.ai',
         },
       });
     }
@@ -69,10 +74,11 @@ export async function authOAuthMiddleware(
         .eq('session_id', sessionId);
 
       return reply.code(401).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'SESSION_EXPIRED',
-          message: 'Session has expired. Please log in again.',
-          url: 'https://claude.ai',
+          code: -32001,
+          message: 'Session expired. Please log in again at https://claude.ai',
         },
       });
     }
@@ -87,11 +93,11 @@ export async function authOAuthMiddleware(
     if (subError || !subscription) {
       logger.error({ userId: session.user_id, error: subError }, 'No subscription found for OAuth user');
       return reply.code(403).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'NO_SUBSCRIPTION',
-          message: 'No active subscription found',
-          action: 'subscribe',
-          url: 'https://app.geenie.io/dashboard/billing',
+          code: -32002,
+          message: 'No active subscription. Subscribe at https://app.geenie.io/dashboard/billing',
         },
       });
     }
@@ -108,16 +114,16 @@ export async function authOAuthMiddleware(
     if (!isActive && !isTrialing) {
       logger.warn({ userId: session.user_id, status }, 'Inactive subscription for OAuth user');
       return reply.code(403).send({
+        jsonrpc: '2.0',
+        id: requestId,
         error: {
-          code: 'SUBSCRIPTION_EXPIRED',
+          code: -32002,
           message:
             status === 'past_due'
-              ? 'Your payment failed. Please update your payment method.'
+              ? 'Subscription expired: Payment failed. Update at https://app.geenie.io/dashboard/billing'
               : status === 'canceled'
-                ? 'Your subscription has been canceled.'
-                : 'Your subscription is inactive.',
-          action: 'update_billing',
-          url: 'https://app.geenie.io/dashboard/billing',
+                ? 'Subscription canceled. Reactivate at https://app.geenie.io/dashboard/billing'
+                : 'Subscription inactive. Visit https://app.geenie.io/dashboard/billing',
         },
       });
     }
@@ -149,9 +155,11 @@ export async function authOAuthMiddleware(
   } catch (error: any) {
     logger.error({ error: error.message }, 'OAuth authentication error');
     return reply.code(500).send({
+      jsonrpc: '2.0',
+      id: requestId,
       error: {
-        code: 'INTERNAL_ERROR',
-        message: 'An unexpected error occurred during authentication',
+        code: -32603,
+        message: 'Internal error during authentication',
       },
     });
   }
