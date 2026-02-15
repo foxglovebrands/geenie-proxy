@@ -531,9 +531,31 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     }
   };
 
-  // Register handler for both paths
-  // Desktop: POST /mcp (existing, unchanged behavior)
-  // Web: POST / (for claude.ai OAuth connector)
+  // Health check / capabilities endpoint (no auth required)
+  // Returns server information for claude.ai discovery
+  const healthHandler = async (request: any, reply: any) => {
+    return reply.send({
+      name: 'Geenie MCP Server',
+      version: '1.0.0',
+      description: 'Amazon Advertising MCP Proxy for Claude',
+      capabilities: {
+        tools: true,
+        resources: false,
+        prompts: false
+      },
+      authentication: {
+        required: true,
+        methods: ['bearer', 'oauth']
+      }
+    });
+  };
+
+  // Register handlers for both paths
+  // Desktop: /mcp (existing, unchanged behavior)
   fastify.post('/mcp', mcpHandler);
+  fastify.get('/mcp', healthHandler);
+
+  // Web: / (for claude.ai OAuth connector)
   fastify.post('/', mcpHandler);
+  fastify.get('/', healthHandler);
 }
