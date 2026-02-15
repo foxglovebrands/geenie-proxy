@@ -14,8 +14,9 @@ import {
 import { isToolAllowed, getUpgradeMessage } from '../services/tool-filter.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
-  // MCP proxy route with dual authentication (Desktop + Web)
-  fastify.post('/mcp', async (request, reply) => {
+  // Shared MCP handler for both /mcp and / paths
+  // Desktop uses /mcp, claude.ai web uses / (root)
+  const mcpHandler = async (request: any, reply: any) => {
     // DUAL AUTHENTICATION: Check which auth method is being used
     const authHeader = request.headers.authorization;
     const sessionHeader = request.headers['mcp-session-id'] as string | undefined;
@@ -23,7 +24,8 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     logger.debug({
       hasAuthHeader: !!authHeader,
       hasSessionHeader: !!sessionHeader,
-      authType: authHeader ? 'bearer' : sessionHeader ? 'oauth' : 'none'
+      authType: authHeader ? 'bearer' : sessionHeader ? 'oauth' : 'none',
+      path: request.url
     }, 'Authentication check');
 
     // Route to appropriate authentication middleware
@@ -527,5 +529,11 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         },
       });
     }
-  });
+  };
+
+  // Register handler for both paths
+  // Desktop: POST /mcp (existing, unchanged behavior)
+  // Web: POST / (for claude.ai OAuth connector)
+  fastify.post('/mcp', mcpHandler);
+  fastify.post('/', mcpHandler);
 }
