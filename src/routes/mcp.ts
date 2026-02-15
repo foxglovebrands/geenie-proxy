@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { authOAuthMiddleware } from '../middleware/auth-oauth.js';
 import { getValidAccessToken } from '../services/token-manager.js';
 import { GLOBAL_BLACKLIST } from '../config/constants.js';
 import {
@@ -13,16 +14,50 @@ import {
 import { isToolAllowed, getUpgradeMessage } from '../services/tool-filter.js';
 
 export default async function mcpRoutes(fastify: FastifyInstance) {
-  // MCP proxy route with authentication
-  fastify.post('/mcp', {
-    preHandler: authMiddleware, // Add auth middleware
-  }, async (request, reply) => {
+  // MCP proxy route with dual authentication (Desktop + Web)
+  fastify.post('/mcp', async (request, reply) => {
+    // DUAL AUTHENTICATION: Check which auth method is being used
+    const authHeader = request.headers.authorization;
+    const sessionHeader = request.headers['mcp-session-id'] as string | undefined;
+
+    logger.debug({
+      hasAuthHeader: !!authHeader,
+      hasSessionHeader: !!sessionHeader,
+      authType: authHeader ? 'bearer' : sessionHeader ? 'oauth' : 'none'
+    }, 'Authentication check');
+
+    // Route to appropriate authentication middleware
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      // DESKTOP PATH: Use existing Bearer token authentication
+      await authMiddleware(request, reply);
+    } else if (sessionHeader) {
+      // WEB PATH: Use new OAuth session authentication
+      await authOAuthMiddleware(request, reply);
+    } else {
+      // No valid authentication provided
+      logger.warn('MCP request with no valid authentication');
+      return reply.code(401).send({
+        error: {
+          code: 'NO_AUTH',
+          message: 'Authentication required. Provide either Authorization: Bearer token (desktop) or Mcp-Session-Id header (web).',
+        },
+      });
+    }
+
+    // If authentication failed, middleware already sent error response
+    if (reply.sent) {
+      logger.debug('Authentication failed, response already sent');
+      return;
+    }
+
+    // Continue with existing MCP processing logic
     const mcpRequest = request.body as any;
-    const user = request.user!; // Set by auth middleware
+    const user = request.user!; // Set by EITHER auth middleware
 
     logger.info({
       method: mcpRequest?.method,
-      userId: user.user_id
+      userId: user.user_id,
+      authType: authHeader ? 'bearer' : 'oauth'
     }, 'MCP request received');
 
     try {

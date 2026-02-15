@@ -83,59 +83,101 @@
 
 ---
 
-## 🔄 IN PROGRESS
+### Phase 3: OAuth Routes (DONE ✅)
+**Status:** Complete - OAuth endpoints implemented
+**Time:** 30 minutes
+**Risk:** MEDIUM ✓
 
-### Phase 3: OAuth Routes (NEXT)
-**Status:** Ready to begin
-**Time Estimate:** 2 hours
-**Risk:** MEDIUM (new code, but isolated from desktop)
+**Changes Made:**
+- ✅ Created `src/routes/oauth.ts` (280 lines)
+- ✅ `GET /oauth/authorize` - Styled login form with Geenie branding
+- ✅ `POST /oauth/login` - Supabase authentication + auth code generation
+- ✅ `POST /oauth/token` - Token exchange endpoint
 
-**What to Build:**
-- Create `src/routes/oauth.ts` with 3 endpoints:
-  1. `GET /oauth/authorize` - Show login form
-  2. `POST /oauth/login` - Process login + create auth code
-  3. `POST /oauth/token` - Exchange auth code for session token
+**Features:**
+- HTML login form with Geenie purple branding
+- Error handling with user-friendly messages
+- Secure auth codes (32 bytes hex, 10-min expiry)
+- Session tokens (7-day expiry)
+- Auto-cleanup of used auth codes
+- Comprehensive logging for debugging
 
 **Safety:**
 - NEW file (desktop doesn't use these routes)
-- Separate from existing `/mcp` endpoint
-- If OAuth breaks, desktop unaffected
+- Routes NOT registered yet (inactive until Phase 6)
+- TypeScript compilation: ✅ Success
+- Desktop tested: ✅ 62 tools returned (Feb 14, 2026 9:40pm)
 
-**Reference Plan:**
-- See `STREAMABLE-HTTP-IMPLEMENTATION-PLAN.md` Phase 3 for full code
-
----
-
-## 📋 PENDING PHASES
-
-### Phase 4: OAuth Middleware (Pending)
-**Time Estimate:** 1 hour
-**Risk:** LOW
-
-**What to Build:**
-- Create `src/middleware/auth-oauth.ts`
-- Validates `Mcp-Session-Id` header
-- Checks `oauth_sessions` table
-- Same `request.user` format as desktop auth
+**Git Status:**
+- File created locally
+- NOT yet committed
+- Will commit with Phase 4
 
 ---
 
-### Phase 5: Dual Authentication (Pending) ⚠️ CRITICAL
+### Phase 4: OAuth Middleware (DONE ✅)
+**Status:** Complete - OAuth session validation implemented
+**Time:** 15 minutes
+**Risk:** LOW ✓
+
+**Changes Made:**
+- ✅ Created `src/middleware/auth-oauth.ts` (160 lines)
+- ✅ Validates `Mcp-Session-Id` header
+- ✅ Checks session in `oauth_sessions` table
+- ✅ Validates subscription status
+- ✅ Returns same `request.user` format as desktop
+
+**Features:**
+- Session expiry checking (7-day sessions)
+- Auto-deletion of expired sessions
+- Subscription status validation (active/trialing)
+- Same user context format as desktop auth
+- Comprehensive logging and error handling
+- Background update of `last_used_at` timestamp
+
+**Safety:**
+- NEW file (desktop uses `auth.ts`, completely separate)
+- TypeScript compilation: ✅ Success
+- Desktop tested: ✅ 62 tools returned (Feb 14, 2026 9:45pm)
+- Middleware NOT active yet (not used until Phase 5)
+
+**Git Status:**
+- File created locally
+- NOT yet committed
+- Will commit with Phase 5
+
+---
+
+## 🔄 IN PROGRESS
+
+### Phase 5: Dual Authentication (IN PROGRESS) ⚠️ CRITICAL
+**Status:** Started - Backup created, ready to implement
 **Time Estimate:** 1 hour
 **Risk:** HIGH (modifies existing /mcp endpoint)
 
-**What to Change:**
+**Changes to Make:**
 - Modify ONLY first ~25 lines of `/mcp` route handler
-- Add routing logic to check auth header type:
+- Add import: `authOAuthMiddleware`
+- Remove `preHandler: authMiddleware` from route config
+- Add dual auth routing logic:
   - `Authorization: Bearer xxx` → Desktop path (existing)
   - `Mcp-Session-Id: xxx` → Web path (new)
 - Desktop processing logic (450+ lines) UNCHANGED
 
 **Safety Protocol:**
-1. Create backup branch before starting
-2. Test desktop immediately after changes
-3. If desktop breaks → revert immediately
-4. This is the ONLY phase that touches desktop code path
+1. ✅ Created backup branch: `backup-before-dual-auth`
+2. ✅ Code changes complete - Added dual auth routing to mcp.ts
+3. ⏳ Deploying to Railway for testing
+4. ⏳ Test desktop immediately after deployment
+5. ⏳ If desktop breaks → revert immediately
+
+**Git Branch:**
+- Backup branch: `backup-before-dual-auth`
+- Working on: `backup-before-dual-auth` (will merge to main after testing)
+
+---
+
+## 📋 PENDING PHASES
 
 ---
 
@@ -197,16 +239,16 @@ curl -s -X POST https://api.geenie.io/mcp \
 | Phase | Status | Time | Risk | Desktop Safe? |
 |-------|--------|------|------|---------------|
 | 1. Cleanup | ✅ Done | 1h | LOW | ✅ Verified |
-| 2. Database | ✅ Done | 30m | LOW | ⏳ TBD |
-| 3. OAuth Routes | ⏳ Next | 2h | MED | - |
-| 4. OAuth Middleware | ⏸️ Pending | 1h | LOW | - |
-| 5. Dual Auth | ⏸️ Pending | 1h | HIGH | - |
+| 2. Database | ✅ Done | 30m | LOW | ✅ Verified |
+| 3. OAuth Routes | ✅ Done | 30m | MED | ✅ Verified |
+| 4. OAuth Middleware | ✅ Done | 15m | LOW | ✅ Verified |
+| 5. Dual Auth | 🔄 In Progress | 1h | HIGH | ⏳ Testing Next |
 | 6. Register Routes | ⏸️ Pending | 30m | LOW | - |
 | 7. Testing | ⏸️ Pending | 1h | LOW | - |
 
 **Total Estimated Time:** 6-7 hours
-**Time Spent:** 1.5 hours
-**Remaining:** 4.5-5.5 hours
+**Time Spent:** 2.25 hours
+**Remaining:** 3.75-4.75 hours
 
 ---
 
@@ -316,18 +358,34 @@ await fastify.register(mcpRoutes);   // Desktop - keep
 **Phase 2 Complete When:**
 - [x] 3 SQL files created
 - [x] 3 tables created in Supabase
-- [ ] Desktop safety test passes (62 tools)
-- [ ] SQL files committed to git
-- [ ] Ready to start Phase 3
+- [x] Desktop safety test passes (62 tools)
+- [x] SQL files committed to git
+- [x] Ready to start Phase 3
+
+**Phase 3 Complete When:**
+- [x] `src/routes/oauth.ts` created
+- [x] 3 OAuth endpoints implemented
+- [x] TypeScript compiles successfully
+- [x] Desktop safety test passes (62 tools)
+- [ ] File committed to git (will commit with Phase 5)
+
+**Phase 4 Complete When:**
+- [x] `src/middleware/auth-oauth.ts` created
+- [x] Session validation logic implemented
+- [x] Subscription checking implemented
+- [x] Same user format as desktop auth
+- [x] TypeScript compiles successfully
+- [x] Desktop safety test passes (62 tools)
+- [ ] File committed to git (will commit with Phase 5)
 
 **Overall Success When:**
-- [ ] Desktop works (Bearer token auth)
-- [ ] Web works (OAuth session auth)
-- [ ] Both use same `/mcp` endpoint
-- [ ] Both access same 62 tools
-- [ ] Both respect subscription limits
-- [ ] Zero desktop downtime during implementation
+- [x] Desktop works (Bearer token auth) - ✅ Verified
+- [ ] Web works (OAuth session auth) - Phase 7
+- [ ] Both use same `/mcp` endpoint - Phase 5
+- [ ] Both access same 62 tools - Phase 7
+- [ ] Both respect subscription limits - Phase 7
+- [x] Zero desktop downtime during implementation - ✅ Maintained
 
 ---
 
-**Status:** Phase 2 complete, ready to verify desktop and begin Phase 3
+**Status:** Phase 5 in progress - Backup branch created (`backup-before-dual-auth`), ready to implement dual authentication
