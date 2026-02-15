@@ -454,7 +454,118 @@ curl https://api.geenie.io/mcp
 - ✅ Desktop POST /mcp working (unchanged behavior)
 - ✅ GET / working (health check)
 - ✅ GET /mcp working (health check)
-- ⏳ Awaiting user to retry connection in claude.ai (5th attempt)
+- ❌ User retried - SAME ERROR (Reference ID: "7532f6420cbaf29a")
+
+---
+
+**Issue #5: Claude.ai Connection Error "7532f6420cbaf29a"**
+**Time:** Feb 15, 2026 ~2:00am
+**Symptom:**
+- User retried connection after Issue #4 fix
+- Error: "There was an error connecting to the MCP server"
+- New Reference ID: "7532f6420cbaf29a"
+- All endpoints working (GET health, POST MCP, OAuth discovery) but still failing
+
+**Investigation:**
+1. Analyzed Railway logs from user
+2. All endpoints returning correct HTTP status codes:
+   - `GET /.well-known/oauth-authorization-server` → 200 OK ✅
+   - `GET /.well-known/oauth-protected-resource` → 200 OK ✅
+   - `POST /` → 401 Unauthorized ✅ (expected - no auth)
+   - `GET /` → 200 OK ✅ (health check)
+3. **Found root cause:** Auth error responses were NOT JSON-RPC compliant
+4. Claude.ai saw 401 errors with custom format and thought "server broken"
+
+**Root Cause:**
+MCP uses JSON-RPC 2.0 protocol. All responses MUST follow JSON-RPC format.
+
+**Our invalid auth errors:**
+```json
+{
+  "error": {
+    "code": "NO_AUTH",
+    "message": "Authentication required..."
+  }
+}
+```
+
+**Valid JSON-RPC 2.0 format:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32001,
+    "message": "Authentication required..."
+  }
+}
+```
+
+Claude.ai received non-compliant error responses and interpreted them as "server malfunction" instead of "authentication required, proceed with OAuth flow".
+
+**Solution Applied:**
+Updated all authentication error responses to be JSON-RPC 2.0 compliant:
+
+1. **src/routes/mcp.ts** - Fixed NO_AUTH error (no Bearer token or session ID)
+   - Added `"jsonrpc": "2.0"` field
+   - Added request `id` from request body
+   - Changed error code from string to number (-32001)
+
+2. **src/middleware/auth.ts** - Fixed all Bearer token auth errors
+   - MISSING_API_KEY → JSON-RPC error
+   - INVALID_API_KEY_FORMAT → JSON-RPC error
+   - INVALID_API_KEY → JSON-RPC error
+   - SUBSCRIPTION_EXPIRED → JSON-RPC error
+   - NO_SUBSCRIPTION → JSON-RPC error
+   - INTERNAL_ERROR → JSON-RPC error
+
+3. **src/middleware/auth-oauth.ts** - Fixed all OAuth session errors
+   - MISSING_SESSION → JSON-RPC error
+   - INVALID_SESSION → JSON-RPC error
+   - SESSION_EXPIRED → JSON-RPC error
+   - SUBSCRIPTION_EXPIRED → JSON-RPC error
+   - NO_SUBSCRIPTION → JSON-RPC error
+   - INTERNAL_ERROR → JSON-RPC error
+
+**JSON-RPC Error Codes Used:**
+- `-32001` - Authentication errors (invalid key, missing session, etc.)
+- `-32002` - Authorization errors (subscription expired, no subscription)
+- `-32603` - Internal errors (per JSON-RPC 2.0 spec)
+
+**Changes:**
+- Modified `src/routes/mcp.ts`
+- Modified `src/middleware/auth.ts`
+- Modified `src/middleware/auth-oauth.ts`
+- Committed: `17a74b6` - "Fix JSON-RPC error responses for MCP protocol compliance"
+- Deployed to production via Railway
+
+**Desktop Safety Verification:**
+```bash
+# Test desktop auth error (invalid API key)
+curl -X POST https://api.geenie.io/mcp \
+  -H "Authorization: Bearer sk_live_test_invalid" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Result: {"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Invalid..."}} ✅
+
+# Test web path auth error (no auth)
+curl -X POST https://api.geenie.io/ \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Result: {"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Authentication required..."}} ✅
+
+# Test GET health (unchanged)
+curl https://api.geenie.io/
+
+# Result: {"name":"Geenie MCP Server",...} ✅
+```
+
+**Testing:**
+- ✅ Desktop auth errors return valid JSON-RPC responses
+- ✅ Web auth errors return valid JSON-RPC responses
+- ✅ GET health endpoint unchanged
+- ✅ Response format now compliant with MCP/JSON-RPC 2.0 spec
+- ⏳ Awaiting user to retry connection in claude.ai (6th attempt)
 
 ---
 
