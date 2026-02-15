@@ -18,6 +18,7 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
       issuer: baseUrl,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
       token_endpoint: `${baseUrl}/oauth/token`,
+      registration_endpoint: `${baseUrl}/register`,  // Dynamic client registration
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code'],
       token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
@@ -39,6 +40,68 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
       resource_signing_alg_values_supported: [],
       resource_documentation: 'https://docs.geenie.io',
     });
+  });
+
+  // Dynamic Client Registration (RFC 7591)
+  // Allows claude.ai to register itself as an OAuth client automatically
+  fastify.post('/register', async (request, reply) => {
+    const body = request.body as any;
+    const { redirect_uris, client_name, grant_types, response_types } = body;
+
+    logger.info({ client_name, redirect_uris }, 'OAuth client registration request');
+
+    // Validate required fields
+    if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+      return reply.code(400).send({
+        error: 'invalid_redirect_uri',
+        error_description: 'redirect_uris is required and must be a non-empty array',
+      });
+    }
+
+    // Generate client credentials
+    const client_id = `client_${crypto.randomBytes(16).toString('hex')}`;
+    const client_secret = crypto.randomBytes(32).toString('hex');
+
+    try {
+      // Store client in database
+      const { error } = await supabase
+        .from('oauth_clients')
+        .insert({
+          client_id,
+          client_secret,
+          client_name: client_name || 'Claude.ai',
+          redirect_uris,
+          grant_types: grant_types || ['authorization_code'],
+          response_types: response_types || ['code'],
+        });
+
+      if (error) {
+        logger.error({ error }, 'Failed to register OAuth client');
+        return reply.code(500).send({
+          error: 'server_error',
+          error_description: 'Failed to register client',
+        });
+      }
+
+      logger.info({ client_id, client_name }, 'OAuth client registered successfully');
+
+      // Return registration response (RFC 7591)
+      return reply.send({
+        client_id,
+        client_secret,
+        client_name: client_name || 'Claude.ai',
+        redirect_uris,
+        grant_types: grant_types || ['authorization_code'],
+        response_types: response_types || ['code'],
+        token_endpoint_auth_method: 'client_secret_post',
+      });
+    } catch (error: any) {
+      logger.error({ error: error.message }, 'OAuth client registration error');
+      return reply.code(500).send({
+        error: 'server_error',
+        error_description: 'Internal server error',
+      });
+    }
   });
 
   // Step 1: Authorization endpoint - Shows login form
