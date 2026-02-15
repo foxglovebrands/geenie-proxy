@@ -33,7 +33,7 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
     const baseUrl = 'https://api.geenie.io';
 
     return reply.send({
-      resource: baseUrl,  // Changed from /mcp to root path (where claude.ai connects)
+      resource: `${baseUrl}/mcp`,  // Standard MCP endpoint path (matches all public connectors)
       authorization_servers: [baseUrl],
       bearer_methods_supported: ['header'],
       resource_signing_alg_values_supported: [],
