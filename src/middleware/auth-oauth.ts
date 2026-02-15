@@ -26,11 +26,12 @@ export async function authOAuthMiddleware(
   // Extract request ID for JSON-RPC responses
   const requestId = (request.body as any)?.id || null;
 
-  // Extract session ID from Mcp-Session-Id header
-  const sessionId = request.headers['mcp-session-id'] as string;
+  // Extract session ID from Authorization header (Bearer token)
+  // OAuth sessions are sent as: Authorization: Bearer session_xxxxx
+  const authHeader = request.headers.authorization;
 
-  if (!sessionId) {
-    logger.warn('OAuth auth attempted without Mcp-Session-Id header');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    logger.warn('OAuth auth attempted without Bearer token');
     return reply
       .code(401)
       .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
@@ -39,10 +40,13 @@ export async function authOAuthMiddleware(
         id: requestId,
         error: {
           code: -32001,
-          message: 'Mcp-Session-Id header required for OAuth authentication',
+          message: 'OAuth session token required in Authorization header (Bearer session_xxxxx)',
         },
       });
   }
+
+  // Extract session token (should start with "session_")
+  const sessionId = authHeader.replace('Bearer ', '').trim();
 
   logger.debug({ sessionId: sessionId.substring(0, 16) + '...' }, 'Validating OAuth session');
 
