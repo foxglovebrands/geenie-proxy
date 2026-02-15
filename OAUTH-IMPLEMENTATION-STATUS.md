@@ -260,7 +260,56 @@ Added OAuth Authorization Server Metadata endpoint that returns:
 
 **Testing:**
 - ✅ Discovery endpoint verified working: `curl https://api.geenie.io/.well-known/oauth-authorization-server`
-- ⏳ Awaiting user to retry connection in claude.ai
+- ❌ User retried - SAME ERROR (Reference ID: "9417d98b71592536")
+
+---
+
+**Issue #2: Claude.ai Connection Error "9417d98b71592536"**
+**Time:** Feb 15, 2026 ~1:14am
+**Symptom:**
+- User retried connection after Issue #1 fix
+- Error: "There was an error connecting to the MCP server"
+- New Reference ID: "9417d98b71592536"
+- Authorization server endpoint working, but still failing
+
+**Investigation:**
+1. Analyzed new Railway logs from user
+2. Found authorization server endpoint returning 200 OK ✅
+3. Found ANOTHER missing endpoint:
+   - `GET /.well-known/oauth-protected-resource` → 404 ❌
+   - Multiple `POST /` → 404 (claude.ai trying to reach MCP endpoint)
+
+**Root Cause:**
+Claude.ai requires BOTH OAuth discovery endpoints:
+- RFC 8414 (Authorization Server Metadata) ✅ - Already fixed
+- RFC 8707 (Protected Resource Metadata) ❌ - **Still missing**
+
+The protected resource endpoint tells claude.ai:
+- Where the MCP resource is (`/mcp`)
+- What authorization servers protect it
+- What bearer token methods are supported
+
+**Solution Applied:**
+Added OAuth Protected Resource Metadata endpoint that returns:
+```json
+{
+  "resource": "https://api.geenie.io/mcp",
+  "authorization_servers": ["https://api.geenie.io"],
+  "bearer_methods_supported": ["header"],
+  "resource_signing_alg_values_supported": [],
+  "resource_documentation": "https://docs.geenie.io"
+}
+```
+
+**Changes:**
+- Modified `src/routes/oauth.ts`
+- Added `GET /.well-known/oauth-protected-resource` endpoint
+- Committed: `05d9a45` - "Add OAuth Protected Resource Metadata endpoint (RFC 8707)"
+- Deployed to production via Railway
+
+**Testing:**
+- ✅ Protected resource endpoint verified working: `curl https://api.geenie.io/.well-known/oauth-protected-resource`
+- ⏳ Awaiting user to retry connection in claude.ai (3rd attempt)
 
 ---
 
