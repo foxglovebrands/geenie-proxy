@@ -374,7 +374,87 @@ curl -X POST https://api.geenie.io/ \
 - ✅ Desktop path `/mcp` working (unchanged behavior)
 - ✅ Web path `/` working (new for claude.ai)
 - ✅ Both paths return identical responses
-- ⏳ Awaiting user to retry connection in claude.ai (4th attempt)
+- ❌ User retried - SAME ERROR (Reference ID: "9bb35faf5d98243e")
+
+---
+
+**Issue #4: Claude.ai Connection Error "9bb35faf5d98243e"**
+**Time:** Feb 15, 2026 ~1:45am
+**Symptom:**
+- User retried connection after Issue #3 fix
+- Error: "There was an error connecting to the MCP server"
+- New Reference ID: "9bb35faf5d98243e"
+- POST requests working but still failing overall
+
+**Investigation:**
+1. Analyzed new Railway logs from user
+2. Found POST endpoints working correctly:
+   - `POST /` → 401 "MCP request with no valid authentication" ✅ (working!)
+3. Found MISSING GET endpoint:
+   - `GET /` → 404 "Route GET:/ not found" ❌ (FAILING!)
+
+**Root Cause:**
+Claude.ai sends GET requests to test server availability/capabilities before attempting OAuth flow. We only registered POST handlers for MCP endpoints, missing the GET health check endpoint that claude.ai expects.
+
+**MCP Protocol:**
+- `POST /` - JSON-RPC requests (requires authentication)
+- `GET /` - Health check / capabilities (no authentication)
+
+**Solution Applied:**
+Added GET health/capabilities endpoint at both paths:
+- Created `healthHandler` that returns server information
+- No authentication required (health check)
+- Returns server name, version, capabilities, auth methods
+
+```json
+{
+  "name": "Geenie MCP Server",
+  "version": "1.0.0",
+  "description": "Amazon Advertising MCP Proxy for Claude",
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "authentication": {
+    "required": true,
+    "methods": ["bearer", "oauth"]
+  }
+}
+```
+
+**Changes:**
+- Modified `src/routes/mcp.ts`
+- Added `healthHandler` function
+- Registered `GET /mcp` and `GET /` handlers
+- Committed: `2cab1fe` - "Add GET health/capabilities endpoint for MCP routes"
+- Deployed to production via Railway
+
+**Desktop Safety Verification:**
+```bash
+# Test desktop POST (unchanged)
+curl -X POST https://api.geenie.io/mcp \
+  -H "Authorization: Bearer sk_live_test" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Result: {"error":{"code":"INVALID_API_KEY",...}} ✅ Working
+
+# Test GET / (new health endpoint)
+curl https://api.geenie.io/
+
+# Result: {"name":"Geenie MCP Server",...} ✅ Working
+
+# Test GET /mcp (new health endpoint)
+curl https://api.geenie.io/mcp
+
+# Result: {"name":"Geenie MCP Server",...} ✅ Working
+```
+
+**Testing:**
+- ✅ Desktop POST /mcp working (unchanged behavior)
+- ✅ GET / working (health check)
+- ✅ GET /mcp working (health check)
+- ⏳ Awaiting user to retry connection in claude.ai (5th attempt)
 
 ---
 
