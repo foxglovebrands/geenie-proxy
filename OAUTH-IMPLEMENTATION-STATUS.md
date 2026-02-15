@@ -630,7 +630,56 @@ WWW-Authenticate: Bearer resource_metadata="https://api.geenie.io/.well-known/oa
 - Adding header doesn't change response body ✅
 - Zero impact on desktop functionality ✅
 
-**Status:** Ready to implement - user confirmed safety approach acceptable
+**Solution Applied:**
+Added `WWW-Authenticate` header to all 401 responses:
+
+**Header format:**
+```
+WWW-Authenticate: Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"
+```
+
+**Files modified:**
+1. `src/routes/mcp.ts` - NO_AUTH error (1 location)
+2. `src/middleware/auth.ts` - Bearer token errors (3 locations)
+3. `src/middleware/auth-oauth.ts` - OAuth session errors (3 locations)
+
+**Changes:**
+- Modified 3 files, 7 total locations
+- All 401 responses now include WWW-Authenticate header
+- Response body unchanged (same JSON-RPC format)
+- Committed: `e6a4c6a` - "Add WWW-Authenticate header to 401 responses for OAuth discovery"
+- Deployed to production via Railway
+
+**Desktop Safety Verification:**
+```bash
+# Test desktop with valid API key
+curl -X POST https://api.geenie.io/mcp \
+  -H "Authorization: Bearer YOUR_API_KEY_HERE" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
+
+# Result: 62 ✅ WORKING!
+
+# Test desktop with invalid API key (verify header present)
+curl -i -X POST https://api.geenie.io/mcp \
+  -H "Authorization: Bearer sk_live_invalid" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Response headers:
+# HTTP/2 401
+# www-authenticate: Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource" ✅
+
+# Response body:
+# {"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Invalid..."}} ✅
+```
+
+**Testing:**
+- ✅ Desktop working: 62 tools returned
+- ✅ WWW-Authenticate header present in 401 responses
+- ✅ JSON-RPC error format unchanged
+- ✅ Response body identical to before
+- ⏳ **READY FOR USER TESTING** - User should retry connection in claude.ai
+
+**Status:** Issue #6 FIXED ✅ - WWW-Authenticate header now included in all 401 responses
 
 ---
 
