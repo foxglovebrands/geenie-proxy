@@ -289,12 +289,44 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Helper function to add category tags to tool descriptions
+      function getCategoryTag(toolName: string): string {
+        // Campaign Management tools
+        if (toolName.includes('campaign') || toolName.includes('ad_group') ||
+            toolName.includes('ad-') || toolName.includes('target')) {
+          if (toolName.includes('keyword') || toolName.includes('target')) {
+            return '[CAMPAIGNS > KEYWORDS]';
+          }
+          if (toolName.includes('ad_group')) {
+            return '[CAMPAIGNS > AD GROUPS]';
+          }
+          return '[CAMPAIGNS]';
+        }
+
+        // Reporting tools
+        if (toolName.startsWith('reporting')) return '[REPORTING]';
+
+        // Billing tools
+        if (toolName.startsWith('billing')) return '[BILLING]';
+
+        // Account management
+        if (toolName.startsWith('account_management')) return '[ACCOUNTS]';
+
+        // Advanced features
+        if (toolName.startsWith('manager_accounts')) return '[ADVANCED > MANAGER ACCOUNTS]';
+        if (toolName.startsWith('stream_subscriptions')) return '[ADVANCED > SUBSCRIPTIONS]';
+        if (toolName.startsWith('terms_token')) return '[ADVANCED > TERMS]';
+        if (toolName.startsWith('user_invitation')) return '[ADVANCED > USERS]';
+
+        return '';
+      }
+
       // Inject custom Geenie tools into tools/list response
       if (mcpRequest.method === 'tools/list' && result.result && result.result.tools) {
         const geenieTools = [
           {
             name: 'geenie_list_accounts',
-            description: '**IMPORTANT: Use this first** - Lists all Amazon Advertising accounts registered in Geenie and shows which account is currently active. This is the ONLY tool that shows your registered accounts. Use this before any account operations.',
+            description: '[ACCOUNTS] **IMPORTANT: Use this first** - Lists all Amazon Advertising accounts registered in Geenie and shows which account is currently active. This is the ONLY tool that shows your registered accounts. Use this before any account operations.',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -303,7 +335,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
           {
             name: 'geenie_switch_account',
-            description: 'Switch to a different Amazon Advertising account registered in Geenie. After switching, all subsequent operations will use the selected account until you switch again.',
+            description: '[ACCOUNTS] Switch to a different Amazon Advertising account registered in Geenie. After switching, all subsequent operations will use the selected account until you switch again.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -317,7 +349,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
           {
             name: 'geenie_get_active_account',
-            description: 'Shows which Amazon Advertising account is currently active for all operations',
+            description: '[ACCOUNTS] Shows which Amazon Advertising account is currently active for all operations',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -326,7 +358,7 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
           {
             name: 'geenie_test_dsp',
-            description: 'Test tool for DSP tier blocking - This tool is only available on Agency plan ($249/mo)',
+            description: '[TESTING] Test tool for DSP tier blocking - This tool is only available on Agency plan ($249/mo)',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -397,10 +429,18 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           }
 
           return !isAccountListingTool;
-        }).map((tool: any) => ({
-          ...tool,
-          inputSchema: simplifySchema(tool.inputSchema)
-        }));
+        }).map((tool: any) => {
+          const categoryTag = getCategoryTag(tool.name);
+          const enhancedDescription = categoryTag
+            ? `${categoryTag} ${tool.description}`
+            : tool.description;
+
+          return {
+            ...tool,
+            description: enhancedDescription,
+            inputSchema: simplifySchema(tool.inputSchema)
+          };
+        });
 
         // Add Geenie tools to the beginning of the tools array
         result.result.tools = [...geenieTools, ...filteredAmazonTools];
