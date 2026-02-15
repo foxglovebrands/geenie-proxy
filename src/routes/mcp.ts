@@ -335,6 +335,53 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           },
         ];
 
+        // Helper to simplify schemas to reduce response size
+        const simplifySchema = (schema: any, depth = 0): any => {
+          if (!schema || typeof schema !== 'object') return schema;
+
+          // At depth 2+, replace complex nested objects with simple placeholders
+          if (depth >= 2) {
+            if (schema.type === 'object') {
+              return {
+                type: 'object',
+                description: schema.description || 'See Amazon Ads API documentation for details'
+              };
+            }
+            if (schema.type === 'array') {
+              return {
+                type: 'array',
+                description: schema.description || 'Array of items'
+              };
+            }
+          }
+
+          const simplified: any = { ...schema };
+
+          // Recursively simplify nested properties
+          if (simplified.properties) {
+            simplified.properties = Object.fromEntries(
+              Object.entries(simplified.properties).map(([key, value]) => [
+                key,
+                simplifySchema(value, depth + 1)
+              ])
+            );
+          }
+
+          if (simplified.items) {
+            simplified.items = simplifySchema(simplified.items, depth + 1);
+          }
+
+          if (simplified.oneOf) {
+            simplified.oneOf = simplified.oneOf.map((item: any) => simplifySchema(item, depth + 1));
+          }
+
+          if (simplified.anyOf) {
+            simplified.anyOf = simplified.anyOf.map((item: any) => simplifySchema(item, depth + 1));
+          }
+
+          return simplified;
+        };
+
         // Filter out Amazon's native account listing tools to avoid confusion
         const filteredAmazonTools = result.result.tools.filter((tool: any) => {
           const toolName = tool.name?.toLowerCase() || '';
@@ -350,7 +397,10 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
           }
 
           return !isAccountListingTool;
-        });
+        }).map((tool: any) => ({
+          ...tool,
+          inputSchema: simplifySchema(tool.inputSchema)
+        }));
 
         // Add Geenie tools to the beginning of the tools array
         result.result.tools = [...geenieTools, ...filteredAmazonTools];
