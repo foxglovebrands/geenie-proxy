@@ -25,6 +25,20 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // OAuth Protected Resource Metadata (RFC 8707)
+  // This endpoint tells Claude.ai where the protected MCP resource is
+  fastify.get('/.well-known/oauth-protected-resource', async (request, reply) => {
+    const baseUrl = 'https://api.geenie.io';
+
+    return reply.send({
+      resource: `${baseUrl}/mcp`,
+      authorization_servers: [baseUrl],
+      bearer_methods_supported: ['header'],
+      resource_signing_alg_values_supported: [],
+      resource_documentation: 'https://docs.geenie.io',
+    });
+  });
+
   // Step 1: Authorization endpoint - Shows login form
   // Called by claude.ai when user adds Geenie connector
   fastify.get('/oauth/authorize', async (request, reply) => {

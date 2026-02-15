@@ -148,46 +148,123 @@
 
 ---
 
+---
+
+### Phase 5: Dual Authentication (DONE ✅)
+**Status:** Complete - Desktop verified working after deployment
+**Time:** 45 minutes
+**Risk:** HIGH ✓
+
+**Changes Made:**
+- ✅ Modified `src/routes/mcp.ts` - Added dual auth routing (47 lines)
+- ✅ Added import: `authOAuthMiddleware`
+- ✅ Removed `preHandler: authMiddleware` from route config
+- ✅ Added dual auth routing logic at start of handler:
+  - `Authorization: Bearer xxx` → Desktop path (existing authMiddleware)
+  - `Mcp-Session-Id: xxx` → Web path (new authOAuthMiddleware)
+- ✅ Desktop processing logic (450+ lines) completely UNCHANGED
+
+**Safety Verification:**
+1. ✅ Created backup branch: `backup-before-dual-auth`
+2. ✅ Code changes complete - Added dual auth routing
+3. ✅ Merged to main and deployed to Railway
+4. ✅ **Desktop tested: 62 tools returned** (Feb 14, 2026 10:15pm)
+5. ✅ Zero desktop downtime maintained
+
+**Git Commits:**
+- `e7cd9fd` - "Implement OAuth web connector with dual authentication (Phases 3-5)"
+- Merged to main and deployed to production
+
+**Deployment:**
+- ✅ Pushed to GitHub
+- ✅ Railway auto-deployed
+- ✅ Production verified: Desktop works perfectly
+
+---
+
+---
+
+### Phase 6: Register Routes (DONE ✅)
+**Status:** Complete - OAuth endpoints now active in production
+**Time:** 15 minutes
+**Risk:** LOW ✓
+
+**Changes Made:**
+- ✅ Added import: `import oauthRoutes from './routes/oauth.js';`
+- ✅ Registered OAuth routes: `await fastify.register(oauthRoutes);`
+- ✅ Updated startup log to show OAuth endpoints
+
+**Endpoints Now Active:**
+- `GET /oauth/authorize` - OAuth login form with Geenie branding
+- `POST /oauth/login` - Process user authentication
+- `POST /oauth/token` - Exchange auth code for session token
+
+**Safety Verification:**
+- ✅ TypeScript compilation: Success
+- ✅ Desktop tested: 62 tools returned (Feb 14, 2026 10:20pm)
+- ✅ OAuth endpoint tested: Login form accessible
+- ✅ Zero desktop impact
+
+**Git Commit:**
+- `13ff23e` - "Register OAuth routes in server index (Phase 6)"
+- Deployed to production via Railway
+
+---
+
 ## 🔄 IN PROGRESS
 
-### Phase 5: Dual Authentication (IN PROGRESS) ⚠️ CRITICAL
-**Status:** Started - Backup created, ready to implement
-**Time Estimate:** 1 hour
-**Risk:** HIGH (modifies existing /mcp endpoint)
+### Phase 7: Testing in Claude.ai (IN PROGRESS)
+**Status:** Debugging OAuth connection errors
 
-**Changes to Make:**
-- Modify ONLY first ~25 lines of `/mcp` route handler
-- Add import: `authOAuthMiddleware`
-- Remove `preHandler: authMiddleware` from route config
-- Add dual auth routing logic:
-  - `Authorization: Bearer xxx` → Desktop path (existing)
-  - `Mcp-Session-Id: xxx` → Web path (new)
-- Desktop processing logic (450+ lines) UNCHANGED
+**Issue #1: Claude.ai Connection Error "2c5124912f1f5101"**
+**Time:** Feb 15, 2026 ~12:07am
+**Symptom:**
+- User clicked "Connect" in claude.ai connector settings
+- Error: "There was an error connecting to the MCP server"
+- Error: "There was an error connecting to Geenie"
+- Reference ID: "2c5124912f1f5101"
 
-**Safety Protocol:**
-1. ✅ Created backup branch: `backup-before-dual-auth`
-2. ✅ Code changes complete - Added dual auth routing to mcp.ts
-3. ⏳ Deploying to Railway for testing
-4. ⏳ Test desktop immediately after deployment
-5. ⏳ If desktop breaks → revert immediately
+**Investigation:**
+1. Checked Railway logs to see what requests claude.ai was making
+2. Found OAuth authorize endpoint WAS working (200 OK)
+3. Found claude.ai was looking for missing endpoints:
+   - `GET /.well-known/oauth-authorization-server` → 404
+   - `GET /.well-known/oauth-protected-resource` → 404
+   - `POST /register` → 404
 
-**Git Branch:**
-- Backup branch: `backup-before-dual-auth`
-- Working on: `backup-before-dual-auth` (will merge to main after testing)
+**Root Cause:**
+Claude.ai follows OAuth 2.0 Authorization Server Metadata (RFC 8414) specification. It expects a discovery endpoint at `/.well-known/oauth-authorization-server` to auto-discover OAuth configuration.
+
+Without this endpoint, claude.ai doesn't know:
+- Where the authorization endpoint is
+- Where the token endpoint is
+- What OAuth flows are supported
+
+**Solution Applied:**
+Added OAuth Authorization Server Metadata endpoint that returns:
+```json
+{
+  "issuer": "https://api.geenie.io",
+  "authorization_endpoint": "https://api.geenie.io/oauth/authorize",
+  "token_endpoint": "https://api.geenie.io/oauth/token",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code"]
+}
+```
+
+**Changes:**
+- Modified `src/routes/oauth.ts`
+- Added `GET /.well-known/oauth-authorization-server` endpoint
+- Committed: `23d82e6` - "Add OAuth Authorization Server Metadata endpoint (RFC 8414)"
+- Deployed to production via Railway
+
+**Testing:**
+- ✅ Discovery endpoint verified working: `curl https://api.geenie.io/.well-known/oauth-authorization-server`
+- ⏳ Awaiting user to retry connection in claude.ai
 
 ---
 
 ## 📋 PENDING PHASES
-
----
-
-### Phase 6: Register Routes (Pending)
-**Time Estimate:** 30 minutes
-**Risk:** LOW
-
-**What to Change:**
-- Update `src/index.ts` to register OAuth routes
-- Add one line: `await fastify.register(oauthRoutes);`
 
 ---
 
@@ -242,13 +319,13 @@ curl -s -X POST https://api.geenie.io/mcp \
 | 2. Database | ✅ Done | 30m | LOW | ✅ Verified |
 | 3. OAuth Routes | ✅ Done | 30m | MED | ✅ Verified |
 | 4. OAuth Middleware | ✅ Done | 15m | LOW | ✅ Verified |
-| 5. Dual Auth | 🔄 In Progress | 1h | HIGH | ⏳ Testing Next |
-| 6. Register Routes | ⏸️ Pending | 30m | LOW | - |
-| 7. Testing | ⏸️ Pending | 1h | LOW | - |
+| 5. Dual Auth | ✅ Done | 45m | HIGH | ✅ Verified |
+| 6. Register Routes | ✅ Done | 15m | LOW | ✅ Verified |
+| 7. Testing | ⏳ Next | 1h | LOW | - |
 
 **Total Estimated Time:** 6-7 hours
-**Time Spent:** 2.25 hours
-**Remaining:** 3.75-4.75 hours
+**Time Spent:** 3.25 hours (6 phases complete!)
+**Remaining:** 1 hour (Final phase!)
 
 ---
 
@@ -388,4 +465,4 @@ await fastify.register(mcpRoutes);   // Desktop - keep
 
 ---
 
-**Status:** Phase 5 in progress - Backup branch created (`backup-before-dual-auth`), ready to implement dual authentication
+**Status:** Phase 6 COMPLETE ✅ - OAuth endpoints live in production! 6 of 7 phases done. Final phase: Testing in claude.ai.
