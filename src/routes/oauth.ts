@@ -20,8 +20,10 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
       token_endpoint: `${baseUrl}/oauth/token`,
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code'],
-      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
-      code_challenge_methods_supported: ['plain', 'S256'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+      code_challenge_methods_supported: ['S256', 'plain'],
+      scopes_supported: [],
+      revocation_endpoint_auth_methods_supported: ['none'],
     });
   });
 
@@ -31,7 +33,7 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
     const baseUrl = 'https://api.geenie.io';
 
     return reply.send({
-      resource: `${baseUrl}/mcp`,
+      resource: baseUrl,  // Changed from /mcp to root path (where claude.ai connects)
       authorization_servers: [baseUrl],
       bearer_methods_supported: ['header'],
       resource_signing_alg_values_supported: [],
