@@ -41,14 +41,17 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
 
       // Return JSON-RPC compliant error response
       const requestId = (request.body as any)?.id || null;
-      return reply.code(401).send({
-        jsonrpc: '2.0',
-        id: requestId,
-        error: {
-          code: -32001, // Custom server error code
-          message: 'Authentication required. Use OAuth to authenticate via claude.ai or provide Bearer token for desktop.',
-        },
-      });
+      return reply
+        .code(401)
+        .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+        .send({
+          jsonrpc: '2.0',
+          id: requestId,
+          error: {
+            code: -32001, // Custom server error code
+            message: 'Authentication required. Use OAuth to authenticate via claude.ai or provide Bearer token for desktop.',
+          },
+        });
     }
 
     // If authentication failed, middleware already sent error response

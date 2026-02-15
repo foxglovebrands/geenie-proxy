@@ -31,14 +31,17 @@ export async function authOAuthMiddleware(
 
   if (!sessionId) {
     logger.warn('OAuth auth attempted without Mcp-Session-Id header');
-    return reply.code(401).send({
-      jsonrpc: '2.0',
-      id: requestId,
-      error: {
-        code: -32001,
-        message: 'Mcp-Session-Id header required for OAuth authentication',
-      },
-    });
+    return reply
+      .code(401)
+      .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+      .send({
+        jsonrpc: '2.0',
+        id: requestId,
+        error: {
+          code: -32001,
+          message: 'Mcp-Session-Id header required for OAuth authentication',
+        },
+      });
   }
 
   logger.debug({ sessionId: sessionId.substring(0, 16) + '...' }, 'Validating OAuth session');
@@ -53,14 +56,17 @@ export async function authOAuthMiddleware(
 
     if (sessionError || !session) {
       logger.warn({ sessionId: sessionId.substring(0, 16), error: sessionError }, 'Invalid OAuth session');
-      return reply.code(401).send({
-        jsonrpc: '2.0',
-        id: requestId,
-        error: {
-          code: -32001,
-          message: 'Invalid or expired session. Please log in again at https://claude.ai',
-        },
-      });
+      return reply
+        .code(401)
+        .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+        .send({
+          jsonrpc: '2.0',
+          id: requestId,
+          error: {
+            code: -32001,
+            message: 'Invalid or expired session. Please log in again at https://claude.ai',
+          },
+        });
     }
 
     // Check if session expired
@@ -73,14 +79,17 @@ export async function authOAuthMiddleware(
         .delete()
         .eq('session_id', sessionId);
 
-      return reply.code(401).send({
-        jsonrpc: '2.0',
-        id: requestId,
-        error: {
-          code: -32001,
-          message: 'Session expired. Please log in again at https://claude.ai',
-        },
-      });
+      return reply
+        .code(401)
+        .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+        .send({
+          jsonrpc: '2.0',
+          id: requestId,
+          error: {
+            code: -32001,
+            message: 'Session expired. Please log in again at https://claude.ai',
+          },
+        });
     }
 
     // Fetch user's subscription data

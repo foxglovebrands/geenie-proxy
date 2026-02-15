@@ -24,14 +24,17 @@ export async function authMiddleware(
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return reply.code(401).send({
-      jsonrpc: '2.0',
-      id: requestId,
-      error: {
-        code: -32001,
-        message: 'API key is required in Authorization header (Bearer sk_live_xxxxx)',
-      },
-    });
+    return reply
+      .code(401)
+      .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+      .send({
+        jsonrpc: '2.0',
+        id: requestId,
+        error: {
+          code: -32001,
+          message: 'API key is required in Authorization header (Bearer sk_live_xxxxx)',
+        },
+      });
   }
 
   // Extract the key
@@ -39,14 +42,17 @@ export async function authMiddleware(
 
   // Validate key format (should start with sk_live_)
   if (!apiKey.startsWith('sk_live_')) {
-    return reply.code(401).send({
-      jsonrpc: '2.0',
-      id: requestId,
-      error: {
-        code: -32001,
-        message: 'API key must start with sk_live_',
-      },
-    });
+    return reply
+      .code(401)
+      .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+      .send({
+        jsonrpc: '2.0',
+        id: requestId,
+        error: {
+          code: -32001,
+          message: 'API key must start with sk_live_',
+        },
+      });
   }
 
   // Hash the API key using SHA256 (same as database)
@@ -132,14 +138,17 @@ export async function authMiddleware(
     // Continue to next handler
   } catch (error: any) {
     if (error.message === 'INVALID_API_KEY') {
-      return reply.code(401).send({
-        jsonrpc: '2.0',
-        id: requestId,
-        error: {
-          code: -32001,
-          message: 'Invalid or inactive API key. Generate new at https://app.geenie.io/dashboard/settings',
-        },
-      });
+      return reply
+        .code(401)
+        .header('WWW-Authenticate', 'Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"')
+        .send({
+          jsonrpc: '2.0',
+          id: requestId,
+          error: {
+            code: -32001,
+            message: 'Invalid or inactive API key. Generate new at https://app.geenie.io/dashboard/settings',
+          },
+        });
     }
 
     if (error.message === 'NO_SUBSCRIPTION') {
