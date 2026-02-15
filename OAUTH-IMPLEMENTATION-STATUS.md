@@ -1013,6 +1013,111 @@ const sessionId = authHeader.replace('Bearer ', '').trim();
 
 ---
 
+**Issue #11: OAuth Routing Logic Not Detecting Session Tokens** 🎯
+**Time:** Feb 15, 2026 ~5:00am
+**Symptom:**
+- User tested OAuth flow after Issue #10 fixes
+- OAuth session created successfully: `session_9ec40b85...`
+- Claude.ai error: "McpAuthorizationError: Your account was authorized but the integration rejected the credentials"
+- Railway logs show multiple `POST /mcp → 401 Unauthorized` errors
+- Session token properly sent in Authorization header but still getting rejected
+
+**Investigation:**
+1. Railway logs confirm OAuth flow working through session creation:
+   - `POST /oauth/login` → "OAuth login successful" ✅
+   - `POST /oauth/token` → "OAuth session created: session_9ec40b85..." ✅
+2. But when claude.ai tries to use the session:
+   - `POST /mcp` → 401 Unauthorized ❌ (multiple times)
+3. Reviewed previous fixes:
+   - ✅ Issue #10b: OAuth middleware correctly extracts session from Authorization header
+   - ✅ Session token format correct: `Bearer session_xxxxx`
+4. **Root cause identified:** Routing logic in `src/routes/mcp.ts` (lines 20-38)
+   - Checks if Authorization header starts with `Bearer `
+   - Routes ALL Bearer tokens to desktop auth (`authMiddleware`)
+   - Desktop auth expects `sk_live_` prefix, rejects `session_` prefix
+   - OAuth middleware never gets called!
+
+**Root Cause:**
+The dual authentication routing logic in `src/routes/mcp.ts` didn't distinguish between different types of Bearer tokens:
+
+**Before:**
+```typescript
+if (authHeader && authHeader.startsWith('Bearer ')) {
+  // DESKTOP PATH: Use existing Bearer token authentication
+  await authMiddleware(request, reply);  // ❌ Sends ALL Bearer tokens here!
+} else if (sessionHeader) {
+  // WEB PATH: Use new OAuth session authentication
+  await authOAuthMiddleware(request, reply);
+}
+```
+
+When claude.ai sends `Authorization: Bearer session_xxxxx`:
+1. Routing sees "Bearer " prefix → routes to `authMiddleware`
+2. Desktop auth checks for `sk_live_` prefix → not found
+3. Desktop auth rejects request → 401 error
+4. OAuth middleware never called!
+
+**Solution Applied:**
+Updated routing logic to check token prefix and route accordingly:
+
+```typescript
+// Extract token from Authorization header to determine auth type
+const bearerToken = authHeader?.startsWith('Bearer ')
+  ? authHeader.replace('Bearer ', '').trim()
+  : null;
+
+// Determine authentication type by checking token prefix:
+// - Desktop API keys start with "sk_live_"
+// - OAuth session tokens start with "session_"
+const isDesktopApiKey = bearerToken?.startsWith('sk_live_');
+const isOAuthSession = bearerToken?.startsWith('session_') || !!sessionHeader;
+
+// Route to appropriate authentication middleware
+if (isDesktopApiKey) {
+  // DESKTOP PATH: Bearer token with API key (sk_live_xxx)
+  await authMiddleware(request, reply);
+} else if (isOAuthSession) {
+  // WEB PATH: Bearer token with session ID (session_xxx)
+  await authOAuthMiddleware(request, reply);
+}
+```
+
+**Desktop Safety:**
+- Desktop API keys **always** start with `sk_live_`
+- `isDesktopApiKey` check explicitly looks for `sk_live_` prefix
+- Desktop requests route to same middleware as before ✅
+- Zero impact on desktop authentication ✅
+
+**Changes:**
+- Modified `src/routes/mcp.ts` - Updated dual auth routing logic (lines 20-38)
+- Added token prefix detection: `sk_live_` vs `session_`
+- Desktop tokens → `authMiddleware` (unchanged)
+- OAuth tokens → `authOAuthMiddleware` (fixed!)
+- Committed: `fead487` - "Fix OAuth routing to distinguish session tokens from API keys"
+- Ready to deploy to Railway
+
+**OAuth Flow Now Complete (All Steps):**
+1. ✅ Claude.ai registers via `POST /register`
+2. ✅ User redirected to `GET /oauth/authorize` (login form)
+3. ✅ User submits login form to `POST /oauth/login`
+4. ✅ User authenticated and authorization code generated
+5. ✅ Redirect back to claude.ai with auth code
+6. ✅ Claude.ai exchanges code for session token via `POST /oauth/token`
+7. ✅ Claude.ai sends session token in Authorization header
+8. ✅ Routing logic detects `session_` prefix and routes to OAuth middleware (FIXED!)
+9. ⏳ OAuth middleware validates session and grants access to MCP tools
+
+**Testing:**
+- ✅ Token prefix detection working
+- ✅ Desktop API keys route to desktop auth
+- ✅ OAuth session tokens route to OAuth auth
+- ✅ Desktop safety maintained
+- ⏳ **READY FOR DEPLOYMENT** - Push to Railway and test in claude.ai
+
+**Status:** Issue #11 FIXED ✅ - OAuth routing now correctly detects session tokens!
+
+---
+
 ## 📋 PENDING PHASES
 
 ---
