@@ -309,7 +309,72 @@ Added OAuth Protected Resource Metadata endpoint that returns:
 
 **Testing:**
 - ✅ Protected resource endpoint verified working: `curl https://api.geenie.io/.well-known/oauth-protected-resource`
-- ⏳ Awaiting user to retry connection in claude.ai (3rd attempt)
+- ❌ User retried - SAME ERROR (Reference ID: "b8432fcf588603bc")
+
+---
+
+**Issue #3: Claude.ai Connection Error "b8432fcf588603bc"**
+**Time:** Feb 15, 2026 ~1:30am
+**Symptom:**
+- User retried connection after Issue #2 fix
+- Error: "There was an error connecting to the MCP server"
+- New Reference ID: "b8432fcf588603bc"
+- Both discovery endpoints working (200 OK), but still failing to connect
+
+**Investigation:**
+1. Analyzed new Railway logs from user
+2. Found both OAuth discovery endpoints returning 200 OK ✅
+   - `GET /.well-known/oauth-authorization-server` → 200 OK ✅
+   - `GET /.well-known/oauth-protected-resource` → 200 OK ✅
+3. Found claude.ai STILL trying to connect at root path:
+   - `POST /` → 404 ❌ (MCP endpoint not found at root)
+   - `GET /` → 404 ❌
+
+**Root Cause:**
+Claude.ai is ignoring the `resource` field in OAuth Protected Resource Metadata. Even though we specified `"resource": "https://api.geenie.io/mcp"`, claude.ai is trying to connect to the root path `/` instead of `/mcp`.
+
+**Possible reasons:**
+- Claude.ai web interface may not fully respect RFC 8707 resource metadata
+- May default to root path when using OAuth connectors
+- Different behavior between Messages API and web interface
+
+**Solution Applied:**
+Added MCP endpoint at root path `/` while preserving desktop path `/mcp`:
+- Extracted MCP handler into shared function `mcpHandler`
+- Registered same handler for both paths:
+  - `POST /mcp` → Desktop users (unchanged)
+  - `POST /` → Claude.ai web users (NEW)
+- Both paths use identical authentication and processing logic
+
+**Changes:**
+- Modified `src/routes/mcp.ts`
+- Extracted handler into `mcpHandler` function
+- Registered handler for both `POST /mcp` and `POST /`
+- Committed: `8e31d4c` - "Add MCP endpoint at root path for claude.ai OAuth connector"
+- Deployed to production via Railway
+
+**Desktop Safety Verification:**
+```bash
+# Test desktop path (unchanged)
+curl -X POST https://api.geenie.io/mcp \
+  -H "Authorization: Bearer sk_live_test" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Result: {"error":{"code":"INVALID_API_KEY",...}} ✅ Working
+
+# Test web path (new)
+curl -X POST https://api.geenie.io/ \
+  -H "Authorization: Bearer sk_live_test" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Result: {"error":{"code":"INVALID_API_KEY",...}} ✅ Working
+```
+
+**Testing:**
+- ✅ Desktop path `/mcp` working (unchanged behavior)
+- ✅ Web path `/` working (new for claude.ai)
+- ✅ Both paths return identical responses
+- ⏳ Awaiting user to retry connection in claude.ai (4th attempt)
 
 ---
 
