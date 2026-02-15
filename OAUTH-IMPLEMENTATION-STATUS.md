@@ -565,7 +565,72 @@ curl https://api.geenie.io/
 - ✅ Web auth errors return valid JSON-RPC responses
 - ✅ GET health endpoint unchanged
 - ✅ Response format now compliant with MCP/JSON-RPC 2.0 spec
-- ⏳ Awaiting user to retry connection in claude.ai (6th attempt)
+- ❌ User retried - SAME ERROR (Reference ID: "fb8fc2567feee4bc")
+
+---
+
+**Issue #6: Claude.ai Connection Error "fb8fc2567feee4bc"**
+**Time:** Feb 15, 2026 ~2:30am
+**Symptom:**
+- User retried connection after Issue #5 fix
+- Error: "There was an error connecting to the MCP server"
+- New Reference ID: "fb8fc2567feee4bc"
+- All endpoints working correctly but still failing to initiate OAuth flow
+
+**Investigation:**
+1. Analyzed Railway logs from user
+2. All endpoints returning correct responses:
+   - `GET /.well-known/oauth-authorization-server` → 200 OK ✅
+   - `GET /.well-known/oauth-protected-resource` → 200 OK ✅
+   - `POST /` → 401 Unauthorized with JSON-RPC error ✅
+   - `GET /` → 200 OK (health check) ✅
+3. **Critical finding:** NO requests to `/oauth/authorize` in logs
+4. Claude.ai is NOT starting the OAuth flow at all
+5. User provided MCP authorization documentation from modelcontextprotocol.io
+
+**Root Cause:**
+Missing `WWW-Authenticate` header in 401 responses. According to the MCP Authorization spec:
+
+> **MCP servers MUST implement one of the following discovery mechanisms:**
+> 1. **WWW-Authenticate Header**: Include the resource metadata URL in the `WWW-Authenticate` HTTP header
+> 2. **Well-Known URI**: Serve metadata at a well-known URI
+
+We implemented #2 (well-known URI) but are **missing #1** (WWW-Authenticate header).
+
+The spec requires:
+> MCP clients **MUST** be able to parse `WWW-Authenticate` headers and respond appropriately to `HTTP 401 Unauthorized` responses
+
+**What's missing:**
+When returning 401 errors, we need to include a `WWW-Authenticate` header:
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"
+Content-Type: application/json
+
+{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Authentication required..."}}
+```
+
+**Why it fails:**
+Claude.ai receives our 401 response, looks for the `WWW-Authenticate` header to discover how to authenticate, doesn't find it, and gives up instead of starting the OAuth flow.
+
+**Solution to Apply:**
+Add `WWW-Authenticate` header to all 401 responses in:
+1. `src/routes/mcp.ts` - NO_AUTH error (no Bearer token or session ID)
+2. `src/middleware/auth.ts` - All Bearer token auth errors
+3. `src/middleware/auth-oauth.ts` - All OAuth session errors
+
+**Header format:**
+```
+WWW-Authenticate: Bearer resource_metadata="https://api.geenie.io/.well-known/oauth-protected-resource"
+```
+
+**Desktop Safety:**
+- Desktop reads response **body** (JSON-RPC error) ✅
+- Headers are metadata - desktop clients ignore headers they don't understand ✅
+- Adding header doesn't change response body ✅
+- Zero impact on desktop functionality ✅
+
+**Status:** Ready to implement - user confirmed safety approach acceptable
 
 ---
 
